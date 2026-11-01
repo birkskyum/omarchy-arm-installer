@@ -30,6 +30,10 @@ public sealed record DeviceInfo
     public string? DriverDate { get; init; }
     /// The driver package's folder in the driver store, when it has one.
     public string? DriverFolder { get; init; }
+    /// The extension driver packages Windows applies to the device on top of
+    /// its driver: each INF's store folder, newest version of each package.
+    /// Qualcomm keeps the DSP firmware in these (qcsubsys_ext_adsp8380).
+    public IReadOnlyList<ExtensionPackage> Extensions { get; init; } = [];
     /// The driver's key under Control\Class ({class guid}\0000), where the
     /// driver keeps its settings.
     public string? Driver { get; init; }
@@ -41,6 +45,42 @@ public sealed record DeviceInfo
     /// The driver's settings key under Control\Class.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public RegistryDump? DriverKey { get; init; }
+}
+
+/// One extension INF Windows applies to a device, from its
+/// ExtendedConfigurationIds ("oem253.inf:ACPI\VEN_QCOM&DEV_0C1B,
+/// SUBSYS_Device_ADSP_ext.NT,04/23/2026,2.0.9100.1"), and its store folder.
+public sealed record ExtensionPackage(string Inf, string? HardwareId, string? Section, string? Date, string? Version, string? Folder)
+{
+    /// Parses one entry; the folder is looked up by the caller.
+    public static ExtensionPackage Parse(string entry, Func<string, string?> storeFolder)
+    {
+        var colon = entry.IndexOf(':');
+        var inf = colon < 0 ? entry : entry[..colon];
+        var rest = colon < 0 ? [] : entry[(colon + 1)..].Split(',');
+        string? At(int i) => i < rest.Length && rest[i].Length > 0 ? rest[i] : null;
+        var date = At(2);
+        if (date is not null && DateTime.TryParseExact(date, "MM/dd/yyyy", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var d))
+            date = d.ToString("yyyy-MM-dd");
+        return new ExtensionPackage(inf.Trim(), At(0), At(1), date, At(3), storeFolder(inf.Trim()));
+    }
+
+    /// The package's name without its store hash: qcsubsys_ext_adsp8380.inf.
+    [JsonIgnore]
+    public string? PackageName => Folder is null ? null
+        : System.IO.Path.GetFileName(Folder.TrimEnd('\\', '/')) is var f && f.IndexOf(".inf_", StringComparison.OrdinalIgnoreCase) is var i && i > 0
+            ? f[..(i + 4)] : f;
+
+    /// Where two versions of one package are installed, the newer one is
+    /// what Windows applies; this keeps that one per package.
+    public static IReadOnlyList<ExtensionPackage> Newest(IEnumerable<ExtensionPackage> all) =>
+        all.Where(e => e.Folder is not null)
+            .GroupBy(e => e.PackageName!, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.OrderByDescending(e => VersionOf(e.Version)).ThenByDescending(e => e.Date).First())
+            .ToList();
+
+    static System.Version VersionOf(string? text) => text is not null && System.Version.TryParse(text, out var v) ? v : new System.Version(0, 0);
 }
 
 /// Everything read from the machine, before redaction.

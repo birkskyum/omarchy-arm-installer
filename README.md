@@ -13,7 +13,7 @@ Run `OmarchyArmInstaller.exe` in the laptop's Windows (as administrator). It rea
 
 ![This computer](docs/screenshots/install-1-this-computer.png)
 
-**2. Firmware.** It lists the drivers whose firmware it will copy: graphics, sound, sensors, Wi-Fi, the battery gauge. The files go onto the stick and nowhere else.
+**2. Firmware.** It lists the drivers whose firmware it will copy: graphics, sound, sensors, Wi-Fi, the battery gauge, and the extension packages Windows applies on top of them, which is where Qualcomm keeps the DSP firmware. The files go onto the stick and nowhere else.
 
 ![Firmware](docs/screenshots/install-2-firmware.png)
 

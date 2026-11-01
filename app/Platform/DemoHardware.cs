@@ -161,15 +161,30 @@ public sealed class DemoHardware : IHardwareSource
         var store = Environment.GetEnvironmentVariable("OMARCHY_DEMO_DRIVER_STORE");
         if (store is not null && Directory.Exists(store))
         {
+            // Extension packages (qcsubsys_ext_adsp8380) hang off one DSP
+            // device, as Windows applies them, with a made-up oemNN.inf each.
+            var extensions = new List<ExtensionPackage>();
             foreach (var folder in Directory.EnumerateDirectories(store).Order().Take(60))
             {
                 var inf = Path.GetFileName(folder).Split('_')[0];
+                if (Path.GetFileName(folder).Contains("_ext_", StringComparison.OrdinalIgnoreCase))
+                {
+                    extensions.Add(new ExtensionPackage($"oem{100 + extensions.Count}.inf", @"ACPI\VEN_QCOM&DEV_0C1B", "SUBSYS_Device_ADSP_ext.NT",
+                        "2026-04-23", $"2.0.{9000 + extensions.Count}.1", folder));
+                    continue;
+                }
                 list.Add(new DeviceInfo
                 {
                     InstanceId = $@"ACPI\{inf.ToUpperInvariant()}\0", Name = inf, Inf = inf, DriverProvider = "Qualcomm",
                     HardwareIds = [$@"ACPI\VEN_QCOM&DEV_{inf.ToUpperInvariant()}"], DriverFolder = folder,
                 });
             }
+            if (extensions.Count > 0)
+                list.Add(new DeviceInfo
+                {
+                    InstanceId = @"ACPI\QCOM0C1B\0", Name = "Qualcomm(R) Audio DSP Subsystem Device", Inf = "oem20.inf", DriverProvider = "Qualcomm",
+                    HardwareIds = [@"ACPI\VEN_QCOM&DEV_0C1B"], Extensions = ExtensionPackage.Newest(extensions),
+                });
         }
         return list;
     }
