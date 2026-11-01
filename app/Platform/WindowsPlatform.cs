@@ -4,6 +4,7 @@ using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text.Json;
+using Microsoft.Win32;
 using Microsoft.Win32.SafeHandles;
 using OmarchyArmInstaller.Core;
 
@@ -24,14 +25,25 @@ public sealed class WindowsPlatform : IPlatform
 
     public Core.Hardware.IHardwareSource Hardware { get; } = new WindowsHardware();
 
+    /// The model and SKU as the firmware reports them, from the registry key
+    /// the kernel fills in from SMBIOS at boot: what Win32_ComputerSystem
+    /// says, without starting PowerShell just to look at the computer.
     public MachineInfo GetMachine()
     {
-        var json = PowerShell("Get-CimInstance Win32_ComputerSystem | Select-Object Model, SystemSKUNumber | ConvertTo-Json", "Reading the model");
-        using var doc = JsonDocument.Parse(json);
-        var model = doc.RootElement.GetProperty("Model").GetString() ?? "";
-        var sku = doc.RootElement.GetProperty("SystemSKUNumber").GetString() ?? "";
+        var model = "";
+        var sku = "";
+        try
+        {
+            using var bios = Registry.LocalMachine.OpenSubKey(@"HARDWARE\DESCRIPTION\System\BIOS");
+            model = bios?.GetValue("SystemProductName") as string ?? "";
+            sku = bios?.GetValue("SystemSKU") as string ?? "";
+        }
+        catch (Exception e)
+        {
+            Log.Error("reading the model from the registry", e);
+        }
         var admin = new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
-        return new MachineInfo(model, sku, RuntimeInformation.OSArchitecture == Architecture.Arm64, admin);
+        return new MachineInfo(model.Trim(), sku.Trim(), RuntimeInformation.OSArchitecture == Architecture.Arm64, admin);
     }
 
     public Task<IReadOnlyList<UsbDisk>> ListUsbDisksAsync(CancellationToken ct) => Task.Run<IReadOnlyList<UsbDisk>>(() =>
@@ -245,12 +257,42 @@ public sealed class WindowsPlatform : IPlatform
             """, "Flushing the stick");
     }, ct);
 
+    /// Where PowerShell is. Windows PowerShell lives under System32, in a
+    /// folder only PATH names; a PATH without it (edited by hand, or by a
+    /// program that rewrote it) made starting "powershell.exe" fail with
+    /// "The system cannot find the file specified", so look for it by its
+    /// full path first. PowerShell 7 does when Windows PowerShell is absent.
+    static readonly Lazy<string> Exe = new(FindPowerShell);
+
+    static string FindPowerShell()
+    {
+        var candidates = new List<string>
+        {
+            Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
+        };
+        foreach (var root in new[] { Environment.GetEnvironmentVariable("ProgramW6432"), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles) })
+            if (!string.IsNullOrEmpty(root)) candidates.Add(Path.Combine(root, "PowerShell", "7", "pwsh.exe"));
+        foreach (var name in new[] { "powershell.exe", "pwsh.exe" })
+            foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                try { candidates.Add(Path.Combine(dir.Trim('"'), name)); }
+                catch (ArgumentException) { }
+            }
+        var found = candidates.Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault(File.Exists)
+            ?? throw new InvalidOperationException(
+                $"PowerShell was not found: neither Windows PowerShell at {candidates[0]} nor PowerShell 7 (pwsh.exe). " +
+                "The installer runs Windows' disk and BitLocker tools through it. Install PowerShell 7 from https://aka.ms/powershell and try again.");
+        Log.Info($"PowerShell: using {found}");
+        return found;
+    }
+
     /// Runs a Windows PowerShell script and returns its output. Every call
     /// goes to the log with its full output; a failure throws with the
     /// script's own error message. -EncodedCommand runs the script as one
     /// unit, which stdin (-Command -) does not for multi-line blocks.
     internal static string PowerShell(string script, string what)
     {
+        var exe = Exe.Value;
         var full = $$"""
             $ErrorActionPreference = 'Stop'
             $ProgressPreference = 'SilentlyContinue'
@@ -263,13 +305,14 @@ public sealed class WindowsPlatform : IPlatform
             }
             """;
         var encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(full));
-        var info = new ProcessStartInfo("powershell.exe",
+        var info = new ProcessStartInfo(exe,
             $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -OutputFormat Text -EncodedCommand {encoded}")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
+            WorkingDirectory = Environment.SystemDirectory,
         };
         Log.Info($"PowerShell: {what}");
         using var process = Process.Start(info) ?? throw new InvalidOperationException("Could not start PowerShell");
