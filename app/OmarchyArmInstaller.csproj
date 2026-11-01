@@ -12,7 +12,7 @@
     <AssemblyName>OmarchyArmInstaller</AssemblyName>
     <RootNamespace>OmarchyArmInstaller</RootNamespace>
     <Product>Omarchy Arm Installer</Product>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <!-- One self-contained executable for Windows on Arm. -->
     <RuntimeIdentifiers>win-arm64;linux-arm64</RuntimeIdentifiers>
     <PublishSingleFile>true</PublishSingleFile>
