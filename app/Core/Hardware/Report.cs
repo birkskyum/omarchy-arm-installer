@@ -96,8 +96,19 @@ public static class ReportBuilder
         {
             problems.Add("The SMBIOS table could not be read.");
         }
+        // ACPI: the SoC serial number the firmware writes into the DSDT goes
+        // too, and counts as a secret for everything else.
+        var acpiTables = new List<AcpiTable>();
+        var acpiSerials = new List<string>();
+        foreach (var t in hw.Acpi)
+        {
+            var (data, serials) = AcpiRedact.Redact(t.Data);
+            acpiTables.Add(ReferenceEquals(data, t.Data) ? t : t with { Data = data });
+            acpiSerials.AddRange(serials);
+        }
+        if (acpiSerials.Count > 0) redactions.Add("SoC serial number in the ACPI tables (SOSN)");
         // Everything else gets the same secrets taken out, with matching placeholders.
-        var scrub = new Scrubber(smbiosSecrets, hw.Secrets, redactions);
+        var scrub = new Scrubber(smbiosSecrets.Concat(acpiSerials), hw.Secrets, redactions);
 
         // EDID: the panel's ID goes into the extra CHIDs.
         string? panel = null;
@@ -119,7 +130,7 @@ public static class ReportBuilder
         // ACPI
         var acpi = new List<object>();
         var acpiNames = new List<string>();
-        foreach (var group in hw.Acpi.GroupBy(t => t.Signature))
+        foreach (var group in acpiTables.GroupBy(t => t.Signature))
         {
             var tables = group.ToList();
             for (var i = 0; i < tables.Count; i++)
