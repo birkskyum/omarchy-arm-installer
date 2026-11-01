@@ -372,6 +372,7 @@ static class DeviceList
     static readonly DevPropKey SecuritySds = new(DeviceGuid, 26);
     static readonly DevPropKey Manufacturer = new(DeviceGuid, 13);
     static readonly DevPropKey LocationPaths = new(DeviceGuid, 37);
+    static readonly DevPropKey ExtendedConfigurationIds = new(new Guid("540b947e-8b40-45bc-a8a2-6a0b894cbda2"), 15);
     static readonly DevPropKey BiosDeviceName = new(new Guid("540b947e-8b40-45bc-a8a2-6a0b894cbda2"), 10);
     static readonly DevPropKey ProblemCode = new(DevNodeGuid, 3);
     static readonly DevPropKey Parent = new(DevNodeGuid, 8);
@@ -423,6 +424,9 @@ static class DeviceList
         {
             if (CM_Locate_DevNodeW(out var dev, id, 0) != CR_SUCCESS) continue;
             var inf = Get(dev, DriverInfPath) as string;
+            string? Folder(string i) => folders.TryGetValue(i, out var f) ? f : folders[i] = StoreFolder(i);
+            var extensions = (Get(dev, ExtendedConfigurationIds) as string[] ?? [])
+                .Where(e => e.Length > 0).Select(e => ExtensionPackage.Parse(e, Folder)).ToList();
             result.Add(new DeviceInfo
             {
                 InstanceId = id,
@@ -441,7 +445,8 @@ static class DeviceList
                 DriverProvider = Get(dev, DriverProvider) as string,
                 DriverVersion = Get(dev, DriverVersion) as string,
                 DriverDate = Get(dev, DriverDate) as string,
-                DriverFolder = inf is null ? null : folders.TryGetValue(inf, out var f) ? f : folders[inf] = StoreFolder(inf),
+                DriverFolder = inf is null ? null : Folder(inf),
+                Extensions = ExtensionPackage.Newest(extensions),
                 Driver = Get(dev, Driver) as string,
                 Properties = AllProperties(dev),
             });

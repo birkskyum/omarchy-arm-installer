@@ -12,7 +12,7 @@ public sealed record FirmwareFile(string Name, long Size, string Sha256);
 /// A driver package with firmware in it: what Linux would need from it, by
 /// name and hash only, and where to look for the package again.
 public sealed record FirmwarePackageInfo(
-    string Folder, string? Inf, string? Provider, string? Version, string? Date,
+    string Folder, string? Inf, string? Provider, string? Version, string? Date, bool Extension,
     IReadOnlyList<string> Devices, string? CatalogSearch, IReadOnlyList<FirmwareFile> Files,
     IReadOnlyList<FirmwareFile> OtherFiles, IReadOnlyList<string> Infs);
 
@@ -364,6 +364,7 @@ public static class ReportBuilder
             CompatibleIds = d.CompatibleIds.Select(Redact).ToArray(),
             LocationPaths = d.LocationPaths.Select(Redact).ToArray(),
             DriverFolder = d.DriverFolder is null ? null : Path.GetFileName(d.DriverFolder.TrimEnd('\\', '/')),
+            Extensions = d.Extensions.Select(e => e with { Folder = e.Folder is null ? null : Path.GetFileName(e.Folder.TrimEnd('\\', '/')) }).ToList(),
             Properties = d.Properties.Select(scrub.Property).ToList(),
             EnumKey = d.EnumKey is null ? null : scrub.Dump(d.EnumKey),
             DriverKey = d.DriverKey is null ? null : scrub.Dump(d.DriverKey),
@@ -372,16 +373,16 @@ public static class ReportBuilder
 
     // ---------- Firmware ----------
 
-    /// Every file in the driver packages of the present devices: the firmware
-    /// by name, size and hash, the drivers and plumbing the same way, and the
-    /// INF files themselves, which say which device loads which firmware and
-    /// what settings its driver gets, added to files under drivers/.
+    /// Every file in the driver packages of the present devices, and in the
+    /// extension packages applied to them: the firmware by name, size and
+    /// hash, the drivers and plumbing the same way, and the INF files
+    /// themselves, which say which device loads which firmware and what
+    /// settings its driver gets, added to files under drivers/.
     public static List<FirmwarePackageInfo> FirmwareInventory(IReadOnlyList<DeviceInfo> devices, Dictionary<string, byte[]> files,
         CancellationToken ct)
     {
         var result = new List<FirmwarePackageInfo>();
-        foreach (var group in devices.Where(d => d.DriverFolder is not null)
-                     .GroupBy(d => d.DriverFolder!, StringComparer.OrdinalIgnoreCase))
+        foreach (var group in FirmwareCollector.Uses(devices).GroupBy(u => u.Folder, StringComparer.OrdinalIgnoreCase))
         {
             ct.ThrowIfCancellationRequested();
             if (!Directory.Exists(group.Key)) continue;
@@ -414,10 +415,17 @@ public static class ReportBuilder
             }
             if (found.Count == 0 && others.Count == 0) continue;
             var first = group.First();
-            var hwid = group.SelectMany(d => d.HardwareIds).FirstOrDefault();
+            var extension = group.All(u => u.IsExtension);
+            var hwid = extension ? first.Extension!.HardwareId ?? first.Device.HardwareIds.FirstOrDefault()
+                : group.SelectMany(u => u.Device.HardwareIds).FirstOrDefault();
             result.Add(new FirmwarePackageInfo(
-                folder, first.Inf, first.DriverProvider, first.DriverVersion, first.DriverDate,
-                group.Select(d => d.Name ?? d.InstanceId).Distinct().Order().ToList(),
+                folder,
+                extension ? first.Extension!.Inf : first.Device.Inf,
+                extension ? null : first.Device.DriverProvider,
+                extension ? first.Extension!.Version : first.Device.DriverVersion,
+                extension ? first.Extension!.Date : first.Device.DriverDate,
+                extension,
+                group.Select(u => u.Device.Name ?? u.Device.InstanceId).Distinct().Order().ToList(),
                 hwid is null ? null : $"https://www.catalog.update.microsoft.com/Search.aspx?q={Uri.EscapeDataString(hwid)}",
                 found, others, infs));
         }
@@ -463,7 +471,7 @@ public static class ReportBuilder
         s.AppendLine("- `smbios/dmi.bin`: the SMBIOS table; read it with `dmidecode --from-dump smbios/dmi.bin`.");
         s.AppendLine("- `edid/`: display EDIDs.");
         s.AppendLine($"- `devices.json`: {devices} devices with hardware IDs, ACPI paths, drivers and every property the configuration manager has for them{(problemDevices > 0 ? $"; {problemDevices} without a working driver" : "")}. Binary values are base64.");
-        s.AppendLine($"- `firmware.json`: {firmwareFiles} firmware files in {packages} driver packages, by name, size and SHA-256, with a Microsoft Update Catalog search for each package, and the packages' other files the same way. The firmware itself is not included.");
+        s.AppendLine($"- `firmware.json`: {firmwareFiles} firmware files in {packages} driver packages (the devices' drivers and the extension packages applied to them, marked `extension`), by name, size and SHA-256, with a Microsoft Update Catalog search for each package, and the packages' other files the same way. The firmware itself is not included.");
         s.AppendLine($"- `drivers/`: the {infFiles} INF files of those packages, which say which device loads which firmware and what settings its driver gets.");
         s.AppendLine($"- `registry/`: {registryKeys} registry keys. `devices.json` holds each device's own key (Device Parameters, LogConf) and its driver's settings key under Control\\Class; `services.json` the drivers' service keys; `system.json` HARDWARE\\DESCRIPTION\\System (processors, firmware, configuration data), DEVICEMAP, RESOURCEMAP (the memory, interrupts and bus connections each driver was given, decoded beside the raw value), SystemInformation (Windows' own CHIDs) and Secure Boot's state. Binaries over 64 KiB are in `blobs/`.");
         if (windows) s.AppendLine("- `windows.json`: what Windows' tools report: the storage bus and disks, the battery, the power states the firmware offers (`powercfg /a`), the GPU and display modes, network adapters, thermal zones, the TPM, and every third-party package in the driver store.");

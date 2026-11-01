@@ -18,12 +18,32 @@ public sealed record FirmwarePackage(string Folder, string Label, IReadOnlyList<
 
 /// Finds the firmware Linux needs in the Windows DriverStore\FileRepository:
 /// every file that is not a driver or Windows plumbing, from the driver
-/// packages of the devices this machine has (other than Microsoft's own).
-/// Files keep their package folder: the installer's qcom-firmware-extract
-/// matches each DSP device tree to the firmware beside it.
+/// packages of the devices this machine has (other than Microsoft's own) and
+/// the extension packages applied to them, where Qualcomm keeps the DSP
+/// firmware. Files keep their package folder: the installer's
+/// qcom-firmware-extract matches each DSP device tree to the firmware beside it.
 public static class FirmwareCollector
 {
     const long LargestFile = 256L << 20;
+
+    /// One driver store folder a device draws on: its driver's, or an
+    /// extension's applied to it.
+    public sealed record Use(string Folder, DeviceInfo Device, ExtensionPackage? Extension)
+    {
+        public bool IsExtension => Extension is not null;
+    }
+
+    /// Every store folder the devices draw on, driver packages and
+    /// extensions alike, in the order the devices come.
+    public static IEnumerable<Use> Uses(IEnumerable<DeviceInfo> devices)
+    {
+        foreach (var d in devices)
+        {
+            if (d.DriverFolder is not null) yield return new Use(d.DriverFolder, d, null);
+            foreach (var e in d.Extensions)
+                if (e.Folder is not null) yield return new Use(e.Folder, d, e);
+        }
+    }
 
     public static IReadOnlyList<FirmwarePackage> Find(string fileRepository, IReadOnlyList<DeviceInfo> devices)
     {
@@ -31,23 +51,26 @@ public static class FirmwareCollector
         if (!Directory.Exists(fileRepository)) return [];
         var store = Path.GetFullPath(fileRepository).TrimEnd('\\', '/');
 
-        foreach (var group in devices.Where(d => d.DriverFolder is not null && !IsMicrosoft(d.DriverProvider))
-                     .GroupBy(d => d.DriverFolder!, StringComparer.OrdinalIgnoreCase))
+        foreach (var group in Uses(devices).Where(u => !IsMicrosoft(u)).GroupBy(u => u.Folder, StringComparer.OrdinalIgnoreCase))
         {
             var folder = Path.GetFullPath(group.Key).TrimEnd('\\', '/');
             if (!string.Equals(Path.GetDirectoryName(folder), store, StringComparison.OrdinalIgnoreCase) || !Directory.Exists(folder))
                 continue;
             var found = Files(folder);
             if (found.Count == 0) continue;
-            var label = group.Select(d => d.Name).FirstOrDefault(n => !string.IsNullOrWhiteSpace(n)) ?? Path.GetFileName(folder);
+            var label = group.Select(u => u.Device.Name).FirstOrDefault(n => !string.IsNullOrWhiteSpace(n)) ?? Path.GetFileName(folder);
+            if (group.All(u => u.IsExtension)) label += " (extension)";
             packages[Path.GetFileName(folder)] = new FirmwarePackage(Path.GetFileName(folder), label, found);
         }
 
         return packages.Values.OrderBy(p => p.Label, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    static bool IsMicrosoft(string? provider) =>
-        provider is not null && provider.StartsWith("Microsoft", StringComparison.OrdinalIgnoreCase);
+    /// Microsoft's own packages: a driver by its provider; an extension by
+    /// its INF keeping its name, where a third party's is installed as oemNN.inf.
+    static bool IsMicrosoft(Use u) => u.Extension is { } e
+        ? !System.Text.RegularExpressions.Regex.IsMatch(e.Inf, @"^oem\d+\.inf$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+        : u.Device.DriverProvider is { } provider && provider.StartsWith("Microsoft", StringComparison.OrdinalIgnoreCase);
 
     static List<FirmwareFile> Files(string folder)
     {
