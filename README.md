@@ -51,11 +51,11 @@ The installer computes the laptop's CHIDs, the hardware IDs systemd-stub picks a
 
 | The laptop | What the installer does |
 |---|---|
-| Is in systemd's [hwids](https://github.com/systemd/systemd/tree/main/src/boot/hwids/aa64) (a device tree exists) | Makes the stick with Omarchy as it comes |
+| Is in systemd's [hwids](https://github.com/systemd/systemd/tree/main/src/boot/hwids/aa64) or among the IDs [Omarchy's kernel](https://github.com/omacom/omarchy-pkgs/tree/master/pkgbuilds/linux-omarchy-aarch64) adds (a device tree exists) | Makes the stick with Omarchy as it comes |
 | Neither | Says it can't start Omarchy yet, explains the device tree, and offers the hardware report |
 | Can't be read | Lets the user choose either |
 
-`app/Assets/models.json` is systemd's list; `bin/update-models` refreshes it.
+`app/Assets/models.json` is systemd's list plus the hardware IDs Omarchy's kernel installs for the trees it carries before systemd lists them; `bin/update-models` refreshes both.
 
 ## The stick
 

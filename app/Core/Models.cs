@@ -3,10 +3,10 @@ using System.Text.Json;
 
 namespace OmarchyArmInstaller.Core;
 
-/// A model systemd-stub can pick a device tree for (systemd's hwids).
+/// A model systemd-stub can pick a device tree for (systemd's hwids or Omarchy's kernel's).
 public sealed record KnownModel(string File, string Name, string Compatible, string[] Hwids);
 
-/// The models Linux knows: systemd's hwids list, embedded as models.json.
+/// The models Linux knows: systemd's hwids list and the IDs Omarchy's kernel adds, embedded as models.json.
 public static class Models
 {
     static readonly JsonSerializerOptions Options = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
