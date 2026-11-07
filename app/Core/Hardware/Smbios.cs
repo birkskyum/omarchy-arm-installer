@@ -46,26 +46,23 @@ public static class Smbios
             var formatted = table.Slice(at, length).ToArray();
 
             // Strings follow, each NUL-terminated, the set ending in a second NUL.
+            // The structure ends at the first double NUL, as Linux and dmidecode
+            // find it: some firmware leaves stray bytes before it, which are no
+            // string, since the strings stop at the first empty one.
+            var start = at + length;
+            var end = start;
+            while (end + 1 < table.Length && (table[end] != 0 || table[end + 1] != 0)) end++;
+            var terminated = end + 1 < table.Length;
+            if (!terminated) end = table.Length;
             var strings = new List<string>();
-            var p = at + length;
-            if (p + 1 < table.Length && table[p] == 0 && table[p + 1] == 0)
+            foreach (var s in Encoding.ASCII.GetString(table[start..end]).Split('\0'))
             {
-                p += 2;
-            }
-            else
-            {
-                while (p < table.Length && table[p] != 0)
-                {
-                    var end = table[p..].IndexOf((byte)0);
-                    if (end < 0) { p = table.Length; break; }
-                    strings.Add(Encoding.ASCII.GetString(table.Slice(p, end)));
-                    p += end + 1;
-                }
-                p++;
+                if (s.Length == 0) break;
+                strings.Add(s);
             }
             list.Add(new SmbiosStructure { Formatted = formatted, Strings = strings });
-            if (formatted[0] == 127) break; // end-of-table structure
-            at = p;
+            if (formatted[0] == 127 || !terminated) break; // end-of-table structure
+            at = end + 2;
         }
         return list;
     }
