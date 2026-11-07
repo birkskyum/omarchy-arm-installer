@@ -153,7 +153,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     /// The list a laptop is recognised from goes stale with the installer.
     public string ModelsNote =>
-        $"This installer ({Log.Version}) recognises the {Models.All.Count} models in systemd's list when it was released. " +
+        $"This installer ({Log.Version}) recognises the {Models.All.Count} models in systemd's list and Omarchy's kernel when it was released. " +
         $"A newer release may know more: github.com/{ImageSource.Repository}/releases.";
 
     public async Task DetectAsync()

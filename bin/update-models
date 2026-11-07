@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Refresh app/Assets/models.json: every Arm laptop systemd-stub can pick a
-device tree for (systemd's src/boot/hwids/aa64), by its CHIDs.
+device tree for, by its CHIDs. Those are systemd's list (src/boot/hwids/aa64)
+and the hardware IDs Omarchy's kernel installs beside it for the trees it
+carries before systemd lists them (omacom/omarchy-pkgs,
+pkgbuilds/linux-omarchy-aarch64). Both land in the same directory on the
+image, so systemd-stub picks from either.
 
   bin/update-models [REF]      # a systemd tag or branch, default main
 """
@@ -20,21 +24,43 @@ def get(url):
         return json.load(response)
 
 
-listing = get(f"https://api.github.com/repos/systemd/systemd/contents/src/boot/hwids/aa64?ref={ref}")
-models = []
-for entry in sorted(listing, key=lambda e: e["name"]):
-    if not entry["name"].endswith(".json"):
-        continue
-    data = get(entry["download_url"])
-    if data.get("type") != "devicetree" or not data.get("compatible"):
-        continue
-    models.append({
-        "file": entry["name"],
-        "name": data["name"],
-        "compatible": data["compatible"],
-        "hwids": sorted(h.lower() for h in data.get("hwids", [])),
-    })
+OMARCHY_KERNEL = "omacom/omarchy-pkgs"
+OMARCHY_KERNEL_DIR = "pkgbuilds/linux-omarchy-aarch64"
+
+
+def devicetree_models(listing):
+    for entry in sorted(listing, key=lambda e: e["name"]):
+        if not entry["name"].endswith(".json"):
+            continue
+        data = get(entry["download_url"])
+        if data.get("type") != "devicetree" or not data.get("compatible"):
+            continue
+        yield entry["name"], data
+
+
+# One entry per device tree: Omarchy's kernel can list more IDs for a tree
+# systemd already has, so they join its entry.
+models = {}
+sources = [
+    get(f"https://api.github.com/repos/systemd/systemd/contents/src/boot/hwids/aa64?ref={ref}"),
+    get(f"https://api.github.com/repos/{OMARCHY_KERNEL}/contents/{OMARCHY_KERNEL_DIR}?ref=master"),
+]
+for listing in sources:
+    for name, data in devicetree_models(listing):
+        hwids = {h.lower() for h in data.get("hwids", [])}
+        model = models.setdefault(data["compatible"], {
+            "file": name,
+            "name": data["name"],
+            "compatible": data["compatible"],
+            "hwids": set(),
+        })
+        model["hwids"] |= hwids
+
+models = sorted(models.values(), key=lambda m: m["file"])
+for model in models:
+    model["hwids"] = sorted(model["hwids"])
 
 out = ROOT / "app" / "Assets" / "models.json"
-out.write_text(json.dumps({"source": f"systemd {ref} src/boot/hwids/aa64", "models": models}, indent=1) + "\n")
+source = f"systemd {ref} src/boot/hwids/aa64 and {OMARCHY_KERNEL} master {OMARCHY_KERNEL_DIR}"
+out.write_text(json.dumps({"source": source, "models": models}, indent=1) + "\n")
 print(f"{len(models)} models -> {out.relative_to(ROOT)}")
