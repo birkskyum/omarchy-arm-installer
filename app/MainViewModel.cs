@@ -184,6 +184,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     MachineInfo? machine;
     CollectedHardware? hardware;
+    SmbiosIdentity? identity;
     public KnownModel? Model { get; private set; }
 
     /// Reads the computer once: SMBIOS, displays and devices, and from those
@@ -195,7 +196,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (hardware is not null) return;
         var m = machine;
         hardware = await platform.Hardware.CollectAsync(new Progress<string>(t => { ProgressText = t; Changed(nameof(ProgressText)); }), ct);
-        var identity = hardware.Smbios is { Length: > 0 } table ? Smbios.Identity(Smbios.Parse(table)) : null;
+        identity = hardware.Smbios is { Length: > 0 } table ? Smbios.Identity(Smbios.Parse(table)) : null;
         var panel = hardware.Displays.OrderByDescending(d => d.Internal).Select(d => Edid.PanelId(d.Edid)).FirstOrDefault();
         var chids = identity is null ? [] : Chid.Calculate(identity, panel).Select(c => c.Value).ToList();
         Model = Models.For(chids);
@@ -472,7 +473,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await platform.EjectAsync(disk, ct);
             Done("The stick is ready");
         });
-        if (!HasError) Current = Steps.Done;
+        if (!HasError)
+        {
+            OfferFirmware();
+            Current = Steps.Done;
+        }
     }
 
     void Note(string text) => Lines.Add(new LogLine(text, false));
@@ -527,6 +532,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 Note(text);
             });
             var hardware = await platform.Hardware.CollectAsync(status, ct);
+            this.hardware ??= hardware;
             Done(ReportLog.Count > 0 ? ReportLog[^1].Text : "Read the hardware");
             Note("Writing the report");
             var built = await Task.Run(() => ReportBuilder.Build(hardware, platform.DownloadFolder, Log.Version, null, ct), ct);
@@ -554,12 +560,69 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 ["sku"] = id.Sku,
                 ["processor"] = r.Processor,
                 ["panel"] = r.Panel,
-                ["report"] = $"{r.Id} ({Path.GetFileName(r.ZipPath)})",
+                ["report"] = $"{r.Id} ({Path.GetFileName(r.ZipPath)})" + (FirmwareCode is { } code ? $", firmware sent as {code}" : ""),
                 ["chids"] = string.Join("\n", r.Chids.Select(c => $"{c.Type,4} {c.Fields} {c.Value}")),
             };
             return $"https://github.com/{ReportRepository}/issues/new?" + string.Join("&", fields
                 .Where(f => !string.IsNullOrWhiteSpace(f.Value))
                 .Select(f => $"{f.Key}={Uri.EscapeDataString(f.Value!)}"));
+        }
+    }
+
+    // ---------- Sending the firmware ----------
+
+    /// The firmware the stick takes, or would take, offered to Are we ARM
+    /// yet's private store at the end of either run of steps.
+    IReadOnlyList<FirmwarePackage> offered = [];
+    public bool OffersFirmware => offered.Count > 0;
+    public bool Sending { get; private set; }
+    public string? FirmwareCode { get; private set; }
+    public bool FirmwareSent => FirmwareCode is not null;
+    public bool CanSendFirmware => !Busy && !FirmwareSent && OffersFirmware;
+
+    public string FirmwareOffer =>
+        $"Are we ARM yet can keep a private copy of the {offered.Sum(p => p.Found.Count)} firmware files in this computer's drivers " +
+        $"({FirmwareDrop.Size(offered) / 1e6:0} MB). Only its maintainer can read them, and they are never published. " +
+        "With them, the maker can be asked to put them in linux-firmware, so Linux gets them without Windows.";
+
+    public string FirmwareSentText => IsReport
+        ? $"Sent, as {FirmwareCode}. The form says so."
+        : $"Sent, as {FirmwareCode}. Mention the code if you report how Omarchy runs here.";
+
+    void OfferFirmware()
+    {
+        if (FirmwareSent) return;
+        offered = Firmware.Count > 0 ? Firmware.ToList() : FirmwareCollector.Find(platform.DriverStore, hardware?.Devices ?? []);
+        Log.Info($"Firmware offered: {offered.Sum(p => p.Found.Count)} files in {offered.Count} packages");
+        ChangedAll();
+    }
+
+    public async Task SendFirmwareAsync()
+    {
+        var id = Report?.Identity ?? identity;
+        Sending = true;
+        try
+        {
+            await RunAsync(async ct =>
+            {
+                ProgressText = "Checking the firmware files";
+                var progress = new Progress<(string Text, double Fraction)>(p =>
+                {
+                    ProgressText = p.Text;
+                    Changed(nameof(ProgressText));
+                    Progress = p.Fraction;
+                });
+                // The demo sends nowhere, unless pointed at a test store.
+                FirmwareCode = platform.IsDemo && Environment.GetEnvironmentVariable("OMARCHY_FIRMWARE_DROP") is null
+                    ? "FW-DEMO"
+                    : await FirmwareDrop.SendAsync(offered, id, MachineName, progress, ct);
+                Log.Info($"Firmware sent as {FirmwareCode}");
+            });
+        }
+        finally
+        {
+            Sending = false;
+            ChangedAll();
         }
     }
 
@@ -675,6 +738,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             case Steps.Installer: if (release is null) await FindReleaseAsync(); break;
             case Steps.Stick: await ListDisksAsync(); break;
             case Steps.Windows: await CheckWindowsAsync(); break;
+            case Steps.Share: OfferFirmware(); break;
         }
     }
 }

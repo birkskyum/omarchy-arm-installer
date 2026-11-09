@@ -81,6 +81,7 @@ public partial class MainWindow : Window
         Avalonia.Threading.Dispatcher.UIThread.Post(() => Page.ScrollToEnd(), Avalonia.Threading.DispatcherPriority.Background);
         Avalonia.Threading.DispatcherTimer.RunOnce(() => Page.ScrollChanged -= Grew, TimeSpan.FromSeconds(1));
     }
+    async void SendFirmware(object? sender, RoutedEventArgs e) => await model.SendFirmwareAsync();
     async void OpenReportForm(object? sender, RoutedEventArgs e) => await Launcher.LaunchUriAsync(new Uri(model.ReportIssueUrl));
 
     async void ShowReport(object? sender, RoutedEventArgs e)

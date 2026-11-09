@@ -183,6 +183,22 @@
               <TextBlock Classes="body" Text="3  If you know where the manufacturer offers this model's drivers, add the link. Then submit it." />
             </StackPanel>
           </Border>
+          <Border Classes="panel" IsVisible="{Binding OffersFirmware}">
+            <StackPanel Spacing="8">
+              <TextBlock Text="The firmware files, if you like" FontWeight="Bold" />
+              <TextBlock Classes="dim body" Text="{Binding FirmwareOffer}" />
+              <Button Content="Send the firmware files" Click="SendFirmware" IsVisible="{Binding CanSendFirmware}" HorizontalAlignment="Left" />
+              <StackPanel Spacing="6" IsVisible="{Binding Sending}">
+                <TextBlock Text="{Binding ProgressText}" Classes="dim" TextWrapping="Wrap" />
+                <ProgressBar Value="{Binding Progress}" Maximum="1" />
+                <Button Content="Stop" Click="Cancel" HorizontalAlignment="Left" />
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding FirmwareSent}">
+                <TextBlock Text="&#xf00c;" Classes="ok" />
+                <TextBlock Text="{Binding FirmwareSentText}" TextWrapping="Wrap" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
           <Button Classes="primary" Content="Open the form on GitHub" Click="OpenReportForm" HorizontalAlignment="Left" />
           <TextBlock Classes="dim body" Text="Left out of the report:" Margin="0,6,0,0" />
           <TextBlock Classes="dim body" Text="{Binding ReportLeftOut}" />
@@ -216,7 +232,7 @@
 
         <!-- Firmware -->
         <StackPanel Classes="step" IsVisible="{Binding IsFirmwareStep}">
-          <TextBlock Classes="body" Text="Graphics, sound, sensors, Wi-Fi and the battery gauge need firmware that only Windows has. These files are copied from this computer's drivers onto the stick, and only there: nothing is uploaded or shared." />
+          <TextBlock Classes="body" Text="Graphics, sound, sensors, Wi-Fi and the battery gauge need firmware that only Windows has. These files are copied from this computer's drivers onto the stick. Nothing is uploaded, unless you choose to send them at the end." />
           <ItemsControl ItemsSource="{Binding Firmware}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="core:FirmwarePackage">
@@ -348,6 +364,22 @@
             </StackPanel>
           </Border>
           <TextBlock Classes="dim body" Text="Omarchy reads this computer's firmware from the stick while it installs; nothing else is needed." />
+          <Border Classes="panel" IsVisible="{Binding OffersFirmware}">
+            <StackPanel Spacing="8">
+              <TextBlock Text="The firmware files, if you like" FontWeight="Bold" />
+              <TextBlock Classes="dim body" Text="{Binding FirmwareOffer}" />
+              <Button Content="Send the firmware files" Click="SendFirmware" IsVisible="{Binding CanSendFirmware}" HorizontalAlignment="Left" />
+              <StackPanel Spacing="6" IsVisible="{Binding Sending}">
+                <TextBlock Text="{Binding ProgressText}" Classes="dim" TextWrapping="Wrap" />
+                <ProgressBar Value="{Binding Progress}" Maximum="1" />
+                <Button Content="Stop" Click="Cancel" HorizontalAlignment="Left" />
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding FirmwareSent}">
+                <TextBlock Text="&#xf00c;" Classes="ok" />
+                <TextBlock Text="{Binding FirmwareSentText}" TextWrapping="Wrap" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
         </StackPanel>
       </StackPanel>
     </ScrollViewer>

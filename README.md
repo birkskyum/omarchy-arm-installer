@@ -13,7 +13,7 @@ Run `OmarchyArmInstaller.exe` in the laptop's Windows (as administrator). It rea
 
 ![This computer](docs/screenshots/install-1-this-computer.png)
 
-**2. Firmware.** It lists the drivers whose firmware it will copy: graphics, sound, sensors, Wi-Fi, the battery gauge, and the extension packages Windows applies on top of them, which is where Qualcomm keeps the DSP firmware. The files go onto the stick and nowhere else.
+**2. Firmware.** It lists the drivers whose firmware it will copy: graphics, sound, sensors, Wi-Fi, the battery gauge, and the extension packages Windows applies on top of them, which is where Qualcomm keeps the DSP firmware. The files go onto the stick, and nowhere else unless you send them at the end (see below).
 
 ![Firmware](docs/screenshots/install-2-firmware.png)
 
@@ -30,6 +30,8 @@ Run `OmarchyArmInstaller.exe` in the laptop's Windows (as administrator). It rea
 ![Windows](docs/screenshots/install-5-windows.png)
 
 **6. Create.** The installer erases the stick and writes the image and the firmware to it. Next steps then says how to turn off Secure Boot, boot from the stick, and pick the free space or the whole disk in Omarchy's installer.
+
+Next steps and Share it both offer to send the firmware files to [Are we ARM yet](https://arewearmyet.com)'s private store, if you like. Nothing there is published: the files are what it takes to ask the maker to put them in linux-firmware, so Linux gets them without Windows. Files go by SHA-256, so only the ones the store doesn't have yet are sent, and the store answers with a code like `FW-K7Q2M9XH4P`, which the report's form then includes.
 
 ![Create](docs/screenshots/install-6-create.png)
 
@@ -75,4 +77,4 @@ dotnet publish app -c Release -r win-arm64 --self-contained true -o out   # the 
 sudo bin/make-usb ISO /dev/sdX --firmware .../FileRepository               # a stick from Linux
 ```
 
-Off Windows the app runs as a demo that writes nothing; `OMARCHY_DEMO_DMI`, `OMARCHY_DEMO_DRIVER_STORE`, `OMARCHY_DEMO_MODE` (install or report), `OMARCHY_DEMO_STEP` (0 in the report collects it and stays) and `OMARCHY_DEMO_SCROLL=end` feed it. Logs go to `%LOCALAPPDATA%\OmarchyArmInstaller\Logs`.
+Off Windows the app runs as a demo that writes nothing; `OMARCHY_DEMO_DMI`, `OMARCHY_DEMO_DRIVER_STORE`, `OMARCHY_DEMO_MODE` (install or report), `OMARCHY_DEMO_STEP` (0 in the report collects it and stays) and `OMARCHY_DEMO_SCROLL=end` feed it, and the demo only sends firmware when `OMARCHY_FIRMWARE_DROP` points at a test store, such as `http://localhost:8787/api/firmware/` from Are we ARM yet's `wrangler dev`. Logs go to `%LOCALAPPDATA%\OmarchyArmInstaller\Logs`.
