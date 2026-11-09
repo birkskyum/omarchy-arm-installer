@@ -19,8 +19,11 @@ public static class FirmwareDrop
     /// OMARCHY_FIRMWARE_DROP points it elsewhere, such as `wrangler dev`.
     public static readonly Uri Endpoint = new(Environment.GetEnvironmentVariable("OMARCHY_FIRMWARE_DROP") ?? "https://arewearmyet.com/api/firmware/");
 
-    /// What one request may carry; a bigger file is listed but not sent.
-    public const long LargestFile = 95L * 1024 * 1024;
+    /// What one request may carry; a bigger file goes in parts of PartSize,
+    /// up to LargestFile, and a file bigger still is listed but not sent.
+    const long OneRequest = 95L * 1024 * 1024;
+    const int PartSize = 64 * 1024 * 1024;
+    public const long LargestFile = 1024L * 1024 * 1024;
     const int HashesPerAsk = 40;
     const int Retries = 5;
 
@@ -87,11 +90,20 @@ public static class FirmwareDrop
         var number = 0;
         foreach (var h in toSend)
         {
-            progress.Report(($"Sending {h.File.Name} ({++number} of {toSend.Count} new files)", 0.2 + 0.78 * sent / sendTotal));
-            using var _ = await SendWithRetryAsync(() => new HttpRequestMessage(HttpMethod.Put, new Uri(Endpoint, $"files/{h.Sha256}"))
+            var text = $"Sending {h.File.Name} ({++number} of {toSend.Count} new files)";
+            progress.Report((text, 0.2 + 0.78 * sent / sendTotal));
+            if (h.File.Size > OneRequest)
             {
-                Content = new StreamContent(File.OpenRead(h.File.SourcePath)),
-            }, ct);
+                var start = sent;
+                await SendInPartsAsync(h, done => progress.Report((text, 0.2 + 0.78 * (start + done) / sendTotal)), ct);
+            }
+            else
+            {
+                using var _ = await SendWithRetryAsync(() => new HttpRequestMessage(HttpMethod.Put, new Uri(Endpoint, $"files/{h.Sha256}"))
+                {
+                    Content = new StreamContent(File.OpenRead(h.File.SourcePath)),
+                }, ct);
+            }
             sent += h.File.Size;
         }
         Log.Info($"Firmware drop: {hashed.Count} files, {missing.Count} new, {toSend.Count} sent ({sent} bytes)");
@@ -119,6 +131,40 @@ public static class FirmwareDrop
         var known = reply.TryGetProperty("known", out var k) && k.ValueKind == JsonValueKind.True;
         progress.Report(("Sent", 1));
         return new Result(reply.GetProperty("code").GetString()!, hashed.Count, toSend.Count, known);
+    }
+
+    /// A file too big for one request: the store starts an upload, takes it
+    /// a part at a time, then joins the parts and checks the SHA-256.
+    static async Task SendInPartsAsync(Hashed h, Action<long> sentSoFar, CancellationToken ct)
+    {
+        var uploads = new Uri(Endpoint, $"uploads/{h.Sha256}");
+        using var started = await SendWithRetryAsync(() => new HttpRequestMessage(HttpMethod.Post, uploads)
+        {
+            Content = JsonContent.Create(new { size = h.File.Size }),
+        }, ct);
+        var start = await started.Content.ReadFromJsonAsync<JsonElement>(ct);
+        if (!start.TryGetProperty("uploadId", out var id)) return; // another laptop sent it meanwhile
+        var upload = $"{uploads}/{Uri.EscapeDataString(id.GetString()!)}";
+
+        var parts = new List<object>();
+        var buffer = new byte[PartSize];
+        await using var file = File.OpenRead(h.File.SourcePath);
+        for (var number = 1; ; number++)
+        {
+            var length = await file.ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false, ct);
+            if (length == 0) break;
+            using var answer = await SendWithRetryAsync(() => new HttpRequestMessage(HttpMethod.Put, $"{upload}/{number}")
+            {
+                Content = new ByteArrayContent(buffer, 0, length),
+            }, ct);
+            var etag = (await answer.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("etag").GetString()!;
+            parts.Add(new { partNumber = number, etag });
+            sentSoFar(file.Position);
+        }
+        using var _ = await SendWithRetryAsync(() => new HttpRequestMessage(HttpMethod.Post, $"{upload}/complete")
+        {
+            Content = JsonContent.Create(new { parts }),
+        }, ct);
     }
 
     /// Sends a request, waiting a minute and trying again while the store

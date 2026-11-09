@@ -45,7 +45,7 @@ public static class FirmwareCollector
         }
     }
 
-    public static IReadOnlyList<FirmwarePackage> Find(string fileRepository, IReadOnlyList<DeviceInfo> devices)
+    public static IReadOnlyList<FirmwarePackage> Find(string fileRepository, IReadOnlyList<DeviceInfo> devices, long largest = LargestFile)
     {
         var packages = new Dictionary<string, FirmwarePackage>(StringComparer.OrdinalIgnoreCase);
         if (!Directory.Exists(fileRepository)) return [];
@@ -56,7 +56,7 @@ public static class FirmwareCollector
             var folder = Path.GetFullPath(group.Key).TrimEnd('\\', '/');
             if (!string.Equals(Path.GetDirectoryName(folder), store, StringComparison.OrdinalIgnoreCase) || !Directory.Exists(folder))
                 continue;
-            var found = Files(folder);
+            var found = Files(folder, largest);
             if (found.Count == 0) continue;
             var label = group.Select(u => u.Device.Name).FirstOrDefault(n => !string.IsNullOrWhiteSpace(n)) ?? Path.GetFileName(folder);
             if (group.All(u => u.IsExtension)) label += " (extension)";
@@ -72,7 +72,7 @@ public static class FirmwareCollector
     /// to Are we ARM yet, where any version a maker shipped is worth having.
     public static IReadOnlyList<FirmwarePackage> FindAll(string fileRepository, IReadOnlyList<DeviceInfo> devices, IEnumerable<string> packageFolders)
     {
-        var packages = Find(fileRepository, devices).ToDictionary(p => p.Folder, StringComparer.OrdinalIgnoreCase);
+        var packages = Find(fileRepository, devices, FirmwareDrop.LargestFile).ToDictionary(p => p.Folder, StringComparer.OrdinalIgnoreCase);
         if (!Directory.Exists(fileRepository)) return [];
         var store = Path.GetFullPath(fileRepository).TrimEnd('\\', '/');
         foreach (var path in packageFolders)
@@ -82,7 +82,7 @@ public static class FirmwareCollector
             if (packages.ContainsKey(name) || !Directory.Exists(folder)
                 || !string.Equals(Path.GetDirectoryName(folder), store, StringComparison.OrdinalIgnoreCase))
                 continue;
-            var found = Files(folder);
+            var found = Files(folder, FirmwareDrop.LargestFile);
             if (found.Count > 0) packages[name] = new FirmwarePackage(name, $"{name} (not in use)", found);
         }
         return packages.Values.OrderBy(p => p.Label, StringComparer.OrdinalIgnoreCase).ToList();
@@ -94,7 +94,7 @@ public static class FirmwareCollector
         ? !System.Text.RegularExpressions.Regex.IsMatch(e.Inf, @"^oem\d+\.inf$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
         : u.Device.DriverProvider is { } provider && provider.StartsWith("Microsoft", StringComparison.OrdinalIgnoreCase);
 
-    static List<FirmwareFile> Files(string folder)
+    static List<FirmwareFile> Files(string folder, long largest)
     {
         var name = Path.GetFileName(folder);
         var list = new List<FirmwareFile>();
@@ -103,7 +103,7 @@ public static class FirmwareCollector
             if (ReportBuilder.NotFirmware.Contains(Path.GetExtension(path))) continue;
             var relative = Path.GetRelativePath(folder, path).Replace('\\', '/');
             var size = new FileInfo(path).Length;
-            if (size > LargestFile) continue;
+            if (size > largest) continue;
             list.Add(new FirmwareFile(name, relative, size, path));
         }
         return list;

@@ -31,7 +31,7 @@ Run `OmarchyArmInstaller.exe` in the laptop's Windows (as administrator). It rea
 
 **6. Create.** The installer erases the stick and writes the image and the firmware to it. Next steps then says how to turn off Secure Boot, boot from the stick, and pick the free space or the whole disk in Omarchy's installer.
 
-Next steps then offers to send the firmware files to [Are we ARM yet](https://arewearmyet.com)'s private store, with one click. Nothing there is published: the files are what it takes to ask the maker to put them in linux-firmware, so Linux gets them without Windows. It sends more than the stick takes: the firmware in every driver package Windows installed from outside its own image, so older versions an update left behind and drivers for hardware that isn't attached go too. Files go by SHA-256, so only the ones the store doesn't have yet are sent, and the store answers with a code like `FW-K7Q2M9XH4P`. Sending the same files again gets the same code back.
+Next steps then offers to send the firmware files to [Are we ARM yet](https://arewearmyet.com)'s private store, with one click. Nothing there is published: the files are what it takes to ask the maker to put them in linux-firmware, so Linux gets them without Windows. It sends more than the stick takes: the firmware in every driver package Windows installed from outside its own image, so older versions an update left behind and drivers for hardware that isn't attached go too. Files go by SHA-256, so only the ones the store doesn't have yet are sent, and the store answers with a code like `FW-K7Q2M9XH4P`. Files over 95 MB go in 64 MB parts, up to 1 GB. Sending the same files again gets the same code back.
 
 ![Create](docs/screenshots/install-6-create.png)
 
