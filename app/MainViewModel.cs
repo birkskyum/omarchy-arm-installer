@@ -184,6 +184,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     MachineInfo? machine;
     CollectedHardware? hardware;
+    SmbiosIdentity? identity;
     public KnownModel? Model { get; private set; }
 
     /// Reads the computer once: SMBIOS, displays and devices, and from those
@@ -195,7 +196,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (hardware is not null) return;
         var m = machine;
         hardware = await platform.Hardware.CollectAsync(new Progress<string>(t => { ProgressText = t; Changed(nameof(ProgressText)); }), ct);
-        var identity = hardware.Smbios is { Length: > 0 } table ? Smbios.Identity(Smbios.Parse(table)) : null;
+        identity = hardware.Smbios is { Length: > 0 } table ? Smbios.Identity(Smbios.Parse(table)) : null;
         var panel = hardware.Displays.OrderByDescending(d => d.Internal).Select(d => Edid.PanelId(d.Edid)).FirstOrDefault();
         var chids = identity is null ? [] : Chid.Calculate(identity, panel).Select(c => c.Value).ToList();
         Model = Models.For(chids);
@@ -472,7 +473,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await platform.EjectAsync(disk, ct);
             Done("The stick is ready");
         });
-        if (!HasError) Current = Steps.Done;
+        if (!HasError)
+        {
+            OfferFirmware();
+            Current = Steps.Done;
+        }
     }
 
     void Note(string text) => Lines.Add(new LogLine(text, false));
@@ -527,11 +532,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 Note(text);
             });
             var hardware = await platform.Hardware.CollectAsync(status, ct);
+            this.hardware ??= hardware;
             Done(ReportLog.Count > 0 ? ReportLog[^1].Text : "Read the hardware");
             Note("Writing the report");
             var built = await Task.Run(() => ReportBuilder.Build(hardware, platform.DownloadFolder, Log.Version, null, ct), ct);
             Log.Info($"Report {built.Id}: {built.ZipPath}\n{built.Summary}");
             Done("Report saved");
+            if (SendFirmwareWithReport)
+            {
+                OfferFirmware();
+                if (OffersFirmware) await SendWithReportAsync(built.Identity, ct);
+            }
             Report = built;
         });
     }
@@ -554,12 +565,121 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 ["sku"] = id.Sku,
                 ["processor"] = r.Processor,
                 ["panel"] = r.Panel,
-                ["report"] = $"{r.Id} ({Path.GetFileName(r.ZipPath)})",
+                ["report"] = $"{r.Id} ({Path.GetFileName(r.ZipPath)})" + (FirmwareCode is { } code ? $", firmware sent as {code}" : ""),
                 ["chids"] = string.Join("\n", r.Chids.Select(c => $"{c.Type,4} {c.Fields} {c.Value}")),
             };
             return $"https://github.com/{ReportRepository}/issues/new?" + string.Join("&", fields
                 .Where(f => !string.IsNullOrWhiteSpace(f.Value))
                 .Select(f => $"{f.Key}={Uri.EscapeDataString(f.Value!)}"));
+        }
+    }
+
+    // ---------- Sending the firmware ----------
+
+    /// The firmware in every driver package installed from outside Windows'
+    /// own image, in use or not, for Are we ARM yet's private store. A report
+    /// sends it along unless the box is cleared; the stick offers it at the
+    /// end, and so does Share it when it wasn't sent.
+    IReadOnlyList<FirmwarePackage> offered = [];
+    public bool OffersFirmware => offered.Count > 0;
+    public bool Sending { get; private set; }
+    FirmwareDrop.Result? firmwareSent;
+    public string? FirmwareCode => firmwareSent?.Code;
+    public bool FirmwareSent => firmwareSent is not null;
+    public bool CanSendFirmware => !Busy && !FirmwareSent && OffersFirmware;
+    public bool ShowFirmware => OffersFirmware || FirmwareSent;
+    public bool AskFirmware => OffersFirmware && !FirmwareSent;
+
+    bool sendFirmwareWithReport = true;
+    public bool SendFirmwareWithReport { get => sendFirmwareWithReport; set { sendFirmwareWithReport = value; Changed(); } }
+
+    string? firmwareFailure;
+    public string? FirmwareFailure { get => firmwareFailure; private set { firmwareFailure = value; Changed(); Changed(nameof(HasFirmwareFailure)); } }
+    public bool HasFirmwareFailure => !string.IsNullOrEmpty(FirmwareFailure);
+
+    public string FirmwareOffer =>
+        $"Today Linux can only get the {offered.Sum(p => p.Found.Count)} firmware files in this computer's drivers " +
+        $"({FirmwareDrop.Size(offered) / 1e6:0} MB) from Windows. Send them to Are we ARM yet, and they are used to ask the maker " +
+        "to put them in linux-firmware, for everyone with this laptop. They stay private. Only its maintainer can read them, and they are never published.";
+
+    public string FirmwareSentText => SentLine + (IsReport
+        ? " The form includes the code."
+        : " Thank you. Mention the code if you report how Omarchy runs here.");
+
+    string SentLine => firmwareSent switch
+    {
+        { Sent: > 0 } r => $"Firmware files sent privately, as {r.Code}: {r.Sent} of the {r.Files} were new to Are we ARM yet.",
+        { Known: true } r => $"These firmware files were sent before, as {r.Code}. Nothing has changed since, so nothing new was sent.",
+        { } r => $"Firmware files listed privately, as {r.Code}. Are we ARM yet already had all {r.Files} of them.",
+        null => "",
+    };
+
+    void OfferFirmware()
+    {
+        if (FirmwareSent) return;
+        offered = FirmwareCollector.FindAll(platform.DriverStore, hardware?.Devices ?? [], platform.DriverPackages());
+        Log.Info($"Firmware offered: {offered.Sum(p => p.Found.Count)} files in {offered.Count} packages");
+        ChangedAll();
+    }
+
+    /// The demo sends nowhere, unless pointed at a test store.
+    async Task<FirmwareDrop.Result> SendOfferedAsync(SmbiosIdentity? id, IProgress<(string Text, double Fraction)> progress, CancellationToken ct)
+    {
+        var count = offered.Sum(p => p.Found.Count);
+        var result = platform.IsDemo && Environment.GetEnvironmentVariable("OMARCHY_FIRMWARE_DROP") is null
+            ? new FirmwareDrop.Result("FW-DEMO", count, count, false)
+            : await FirmwareDrop.SendAsync(offered, id, MachineName, progress, ct);
+        Log.Info($"Firmware sent as {result.Code}: {result.Sent} of {result.Files} new{(result.Known ? ", sent before" : "")}");
+        return result;
+    }
+
+    /// The last line of collecting a report. Failing here leaves the report
+    /// whole, and Share it offers to try again.
+    async Task SendWithReportAsync(SmbiosIdentity id, CancellationToken ct)
+    {
+        const string sending = "Sending the firmware files privately";
+        Note(sending);
+        var progress = new Progress<(string Text, double Fraction)>(p =>
+        {
+            if (ReportLog.Count > 0 && ReportLog[^1] is { Ok: false } last && last.Text.StartsWith(sending))
+                ReportLog[^1] = new LogLine($"{sending} ({p.Fraction:P0})", false);
+        });
+        try
+        {
+            firmwareSent = await SendOfferedAsync(id, progress, ct);
+            Done(SentLine);
+        }
+        catch (Exception e)
+        {
+            Log.Error("sending the firmware with the report", e);
+            ReportLog.RemoveAt(ReportLog.Count - 1);
+            FirmwareFailure = e is OperationCanceledException ? "Sending the firmware files was stopped." : $"Sending the firmware files didn't work: {e.Message}";
+        }
+    }
+
+    public async Task SendFirmwareAsync()
+    {
+        var id = Report?.Identity ?? identity;
+        FirmwareFailure = null;
+        Sending = true;
+        try
+        {
+            await RunAsync(async ct =>
+            {
+                ProgressText = "Checking the firmware files";
+                var progress = new Progress<(string Text, double Fraction)>(p =>
+                {
+                    ProgressText = p.Text;
+                    Changed(nameof(ProgressText));
+                    Progress = p.Fraction;
+                });
+                firmwareSent = await SendOfferedAsync(id, progress, ct);
+            });
+        }
+        finally
+        {
+            Sending = false;
+            ChangedAll();
         }
     }
 
@@ -675,6 +795,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             case Steps.Installer: if (release is null) await FindReleaseAsync(); break;
             case Steps.Stick: await ListDisksAsync(); break;
             case Steps.Windows: await CheckWindowsAsync(); break;
+            case Steps.Done or Steps.Share: OfferFirmware(); break;
         }
     }
 }

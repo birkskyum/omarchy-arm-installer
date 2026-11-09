@@ -13,7 +13,7 @@ Run `OmarchyArmInstaller.exe` in the laptop's Windows (as administrator). It rea
 
 ![This computer](docs/screenshots/install-1-this-computer.png)
 
-**2. Firmware.** It lists the drivers whose firmware it will copy: graphics, sound, sensors, Wi-Fi, the battery gauge, and the extension packages Windows applies on top of them, which is where Qualcomm keeps the DSP firmware. The files go onto the stick and nowhere else.
+**2. Firmware.** It lists the drivers whose firmware it will copy: graphics, sound, sensors, Wi-Fi, the battery gauge, and the extension packages Windows applies on top of them, which is where Qualcomm keeps the DSP firmware. The files go onto the stick, and nowhere else unless you send them at the end (see below).
 
 ![Firmware](docs/screenshots/install-2-firmware.png)
 
@@ -31,17 +31,19 @@ Run `OmarchyArmInstaller.exe` in the laptop's Windows (as administrator). It rea
 
 **6. Create.** The installer erases the stick and writes the image and the firmware to it. Next steps then says how to turn off Secure Boot, boot from the stick, and pick the free space or the whole disk in Omarchy's installer.
 
+Next steps then offers to send the firmware files to [Are we ARM yet](https://arewearmyet.com)'s private store, with one click. Nothing there is published: the files are what it takes to ask the maker to put them in linux-firmware, so Linux gets them without Windows. It sends more than the stick takes: the firmware in every driver package Windows installed from outside its own image, so older versions an update left behind and drivers for hardware that isn't attached go too. Files go by SHA-256, so only the ones the store doesn't have yet are sent, and the store answers with a code like `FW-K7Q2M9XH4P`. Files over 95 MB go in 64 MB parts, up to 1 GB. Sending the same files again gets the same code back.
+
 ![Create](docs/screenshots/install-6-create.png)
 
 ## Sharing a hardware report
 
-**1. Hardware report.** The installer explains what a report holds and what it leaves out. Collect the report reads it all and saves one zip.
+**1. Hardware report.** The installer explains what a report holds and what it leaves out. Collect the report reads it all and saves one zip. Unless you clear the box above the button, it then sends the firmware files in the drivers to Are we ARM yet's private store, as Next steps offers to above. The zip never holds the firmware, only its names and hashes.
 
 ![Hardware report](docs/screenshots/report-1-hardware-report.png)
 
 ![Collecting the report](docs/screenshots/report-2-collecting.png)
 
-**2. Share it.** The zip is in Downloads, with a list of what was taken out of it. Open the form on GitHub (the model and its hardware IDs are filled in already), drag the zip in, add a link to the manufacturer's drivers if you know it, and submit.
+**2. Share it.** The zip is in Downloads, with a list of what was taken out of it. Open the form on GitHub (the model and its hardware IDs are filled in already), drag the zip in, add a link to the manufacturer's drivers if you know it, and submit. The form includes the firmware's code when it was sent; if it wasn't, Share it offers to send it.
 
 ![Share it](docs/screenshots/report-3-share-it.png)
 
@@ -75,4 +77,4 @@ dotnet publish app -c Release -r win-arm64 --self-contained true -o out   # the 
 sudo bin/make-usb ISO /dev/sdX --firmware .../FileRepository               # a stick from Linux
 ```
 
-Off Windows the app runs as a demo that writes nothing; `OMARCHY_DEMO_DMI`, `OMARCHY_DEMO_DRIVER_STORE`, `OMARCHY_DEMO_MODE` (install or report), `OMARCHY_DEMO_STEP` (0 in the report collects it and stays) and `OMARCHY_DEMO_SCROLL=end` feed it. Logs go to `%LOCALAPPDATA%\OmarchyArmInstaller\Logs`.
+Off Windows the app runs as a demo that writes nothing; `OMARCHY_DEMO_DMI`, `OMARCHY_DEMO_DRIVER_STORE`, `OMARCHY_DEMO_MODE` (install or report), `OMARCHY_DEMO_STEP` (0 in the report collects it and stays) and `OMARCHY_DEMO_SCROLL=end` feed it, and the demo only sends firmware when `OMARCHY_FIRMWARE_DROP` points at a test store, such as `http://localhost:8787/api/firmware/` from Are we ARM yet's `wrangler dev`. Logs go to `%LOCALAPPDATA%\OmarchyArmInstaller\Logs`.

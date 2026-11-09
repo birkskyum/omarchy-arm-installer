@@ -145,6 +145,9 @@
         <!-- Hardware report -->
         <StackPanel Classes="step" IsVisible="{Binding IsCollectStep}">
           <TextBlock Classes="body" Text="Linux runs on Arm laptops through a device tree: a description of the hardware, written by hand for each model. Writing one takes what this computer's firmware and Windows know about it. This reads that and saves it as one zip file." />
+          <CheckBox IsChecked="{Binding SendFirmwareWithReport}" IsVisible="{Binding CanCollect}">
+            <TextBlock Classes="body" Text="Also send the firmware files in this computer's drivers to Are we ARM yet, to get them into linux-firmware. They stay private. Only its maintainer can read them, and they are never published." />
+          </CheckBox>
           <Button Classes="primary" Content="Collect the report" Click="Collect" IsVisible="{Binding CanCollect}" HorizontalAlignment="Left" />
           <Border Classes="panel">
             <StackPanel Spacing="4">
@@ -176,6 +179,23 @@
           <TextBlock Classes="body" Text="The report is saved as" />
           <SelectableTextBlock Text="{Binding ReportPath}" TextWrapping="Wrap" />
           <Button Content="Show the report" Click="ShowReport" HorizontalAlignment="Left" />
+          <Border Classes="panel" IsVisible="{Binding ShowFirmware}">
+            <StackPanel Spacing="8">
+              <TextBlock Text="Help get this laptop's firmware into Linux" FontWeight="Bold" IsVisible="{Binding AskFirmware}" />
+              <TextBlock Classes="body" Text="{Binding FirmwareOffer}" IsVisible="{Binding AskFirmware}" />
+              <TextBlock Classes="body warn" Text="{Binding FirmwareFailure}" IsVisible="{Binding HasFirmwareFailure}" />
+              <Button Classes="primary" Content="Send the firmware files" Click="SendFirmware" IsVisible="{Binding CanSendFirmware}" HorizontalAlignment="Left" />
+              <StackPanel Spacing="6" IsVisible="{Binding Sending}">
+                <TextBlock Text="{Binding ProgressText}" Classes="dim" TextWrapping="Wrap" />
+                <ProgressBar Value="{Binding Progress}" Maximum="1" />
+                <Button Content="Stop" Click="Cancel" HorizontalAlignment="Left" />
+              </StackPanel>
+              <Grid ColumnDefinitions="22,*" IsVisible="{Binding FirmwareSent}">
+                <TextBlock Text="&#xf00c;" Classes="ok" />
+                <TextBlock Grid.Column="1" Classes="body" Text="{Binding FirmwareSentText}" />
+              </Grid>
+            </StackPanel>
+          </Border>
           <Border Classes="panel">
             <StackPanel Spacing="12">
               <TextBlock Classes="body" Text="1  Open the form on GitHub; it needs a free GitHub account. The model and its hardware IDs are filled in already." />
@@ -216,7 +236,7 @@
 
         <!-- Firmware -->
         <StackPanel Classes="step" IsVisible="{Binding IsFirmwareStep}">
-          <TextBlock Classes="body" Text="Graphics, sound, sensors, Wi-Fi and the battery gauge need firmware that only Windows has. These files are copied from this computer's drivers onto the stick, and only there: nothing is uploaded or shared." />
+          <TextBlock Classes="body" Text="Graphics, sound, sensors, Wi-Fi and the battery gauge need firmware that only Windows has. These files are copied from this computer's drivers onto the stick. Nothing is uploaded, unless you choose to send them at the end." />
           <ItemsControl ItemsSource="{Binding Firmware}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="core:FirmwarePackage">
@@ -348,6 +368,23 @@
             </StackPanel>
           </Border>
           <TextBlock Classes="dim body" Text="Omarchy reads this computer's firmware from the stick while it installs; nothing else is needed." />
+          <Border Classes="panel" IsVisible="{Binding ShowFirmware}">
+            <StackPanel Spacing="8">
+              <TextBlock Text="Help get this laptop's firmware into Linux" FontWeight="Bold" IsVisible="{Binding AskFirmware}" />
+              <TextBlock Classes="body" Text="{Binding FirmwareOffer}" IsVisible="{Binding AskFirmware}" />
+              <TextBlock Classes="body warn" Text="{Binding FirmwareFailure}" IsVisible="{Binding HasFirmwareFailure}" />
+              <Button Classes="primary" Content="Send the firmware files" Click="SendFirmware" IsVisible="{Binding CanSendFirmware}" HorizontalAlignment="Left" />
+              <StackPanel Spacing="6" IsVisible="{Binding Sending}">
+                <TextBlock Text="{Binding ProgressText}" Classes="dim" TextWrapping="Wrap" />
+                <ProgressBar Value="{Binding Progress}" Maximum="1" />
+                <Button Content="Stop" Click="Cancel" HorizontalAlignment="Left" />
+              </StackPanel>
+              <Grid ColumnDefinitions="22,*" IsVisible="{Binding FirmwareSent}">
+                <TextBlock Text="&#xf00c;" Classes="ok" />
+                <TextBlock Grid.Column="1" Classes="body" Text="{Binding FirmwareSentText}" />
+              </Grid>
+            </StackPanel>
+          </Border>
         </StackPanel>
       </StackPanel>
     </ScrollViewer>

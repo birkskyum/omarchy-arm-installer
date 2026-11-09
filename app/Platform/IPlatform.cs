@@ -26,6 +26,10 @@ public interface IPlatform
     /// Reads what a hardware report is made from.
     Core.Hardware.IHardwareSource Hardware { get; }
 
+    /// The driver store folder of every driver package installed from outside
+    /// Windows' own image, whether a device uses it now or not.
+    IReadOnlyList<string> DriverPackages();
+
     Task<IReadOnlyList<UsbDisk>> ListUsbDisksAsync(CancellationToken ct);
     Task<BitLockerState> GetBitLockerAsync(CancellationToken ct);
     Task<SystemPartition> GetSystemPartitionAsync(CancellationToken ct);

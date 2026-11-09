@@ -25,6 +25,8 @@ public sealed class WindowsPlatform : IPlatform
 
     public Core.Hardware.IHardwareSource Hardware { get; } = new WindowsHardware();
 
+    public IReadOnlyList<string> DriverPackages() => DeviceList.ThirdPartyPackages();
+
     /// The model and SKU as the firmware reports them, from the registry key
     /// the kernel fills in from SMBIOS at boot: what Win32_ComputerSystem
     /// says, without starting PowerShell just to look at the computer.
