@@ -608,9 +608,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     string SentLine => firmwareSent switch
     {
+        { Sent: > 0 } r => $"Firmware files sent privately, as {r.Code}: {r.Sent} of the {r.Files} were new to Are we ARM yet.",
         { Known: true } r => $"These firmware files were sent before, as {r.Code}. Nothing has changed since, so nothing new was sent.",
-        { Sent: 0 } r => $"Firmware files listed privately, as {r.Code}. Are we ARM yet already had all {r.Files} of them.",
-        { } r => $"Firmware files sent privately, as {r.Code}: {r.Sent} of the {r.Files} were new to Are we ARM yet.",
+        { } r => $"Firmware files listed privately, as {r.Code}. Are we ARM yet already had all {r.Files} of them.",
         null => "",
     };
 
