@@ -491,6 +491,16 @@ static class DeviceList
         };
     }
 
+    /// Every driver package Windows took from outside its own image, one
+    /// oemNN.inf each: in use or not, older versions left behind by an update,
+    /// and drivers for hardware that isn't attached.
+    public static List<string> ThirdPartyPackages() =>
+        Directory.EnumerateFiles(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "INF"), "oem*.inf")
+            .Select(p => StoreFolder(Path.GetFileName(p)))
+            .OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
     /// The driver store folder an installed INF (oem12.inf) came from.
     static string? StoreFolder(string inf)
     {

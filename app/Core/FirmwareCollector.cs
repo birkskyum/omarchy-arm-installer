@@ -66,6 +66,28 @@ public static class FirmwareCollector
         return packages.Values.OrderBy(p => p.Label, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// Everything Find takes, plus the firmware in every other package
+    /// installed from outside Windows' own image: older versions an update
+    /// left behind and drivers for hardware that isn't attached. What goes
+    /// to Are we ARM yet, where any version a maker shipped is worth having.
+    public static IReadOnlyList<FirmwarePackage> FindAll(string fileRepository, IReadOnlyList<DeviceInfo> devices, IEnumerable<string> packageFolders)
+    {
+        var packages = Find(fileRepository, devices).ToDictionary(p => p.Folder, StringComparer.OrdinalIgnoreCase);
+        if (!Directory.Exists(fileRepository)) return [];
+        var store = Path.GetFullPath(fileRepository).TrimEnd('\\', '/');
+        foreach (var path in packageFolders)
+        {
+            var folder = Path.GetFullPath(path).TrimEnd('\\', '/');
+            var name = Path.GetFileName(folder);
+            if (packages.ContainsKey(name) || !Directory.Exists(folder)
+                || !string.Equals(Path.GetDirectoryName(folder), store, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var found = Files(folder);
+            if (found.Count > 0) packages[name] = new FirmwarePackage(name, $"{name} (not in use)", found);
+        }
+        return packages.Values.OrderBy(p => p.Label, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
     /// Microsoft's own packages: a driver by its provider; an extension by
     /// its INF keeping its name, where a third party's is installed as oemNN.inf.
     static bool IsMicrosoft(Use u) => u.Extension is { } e

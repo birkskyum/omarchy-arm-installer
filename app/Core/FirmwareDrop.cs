@@ -34,6 +34,10 @@ public static class FirmwareDrop
         return client;
     }
 
+    /// The code for this list of files; how many files it holds and how many
+    /// the store lacked; and whether this same list was already sent from here.
+    public sealed record Result(string Code, int Files, int Sent, bool Known);
+
     sealed record Hashed(FirmwareFile File, string Sha256);
 
     sealed record ReportFile(
@@ -46,7 +50,7 @@ public static class FirmwareDrop
         packages.SelectMany(p => p.Found).Where(f => f.Size <= LargestFile).Sum(f => f.Size);
 
     /// Sends what the store lacks and returns the code for this list of files.
-    public static async Task<string> SendAsync(IReadOnlyList<FirmwarePackage> packages, SmbiosIdentity? identity, string model,
+    public static async Task<Result> SendAsync(IReadOnlyList<FirmwarePackage> packages, SmbiosIdentity? identity, string model,
         IProgress<(string Text, double Fraction)> progress, CancellationToken ct)
     {
         var files = packages.SelectMany(p => p.Found).ToList();
@@ -58,7 +62,7 @@ public static class FirmwareDrop
         foreach (var f in files)
         {
             ct.ThrowIfCancellationRequested();
-            progress.Report(($"Checking {f.Name}", 0.2 * read / total));
+            progress.Report(($"Checking which files are new ({hashed.Count + 1} of {files.Count})", 0.2 * read / total));
             await using (var stream = File.OpenRead(f.SourcePath))
                 hashed.Add(new Hashed(f, Convert.ToHexString(await SHA256.HashDataAsync(stream, ct)).ToLowerInvariant()));
             read += f.Size;
@@ -80,9 +84,10 @@ public static class FirmwareDrop
         var toSend = sendable.Where(h => missing.Contains(h.Sha256)).ToList();
         var sendTotal = Math.Max(1, toSend.Sum(h => h.File.Size));
         long sent = 0;
+        var number = 0;
         foreach (var h in toSend)
         {
-            progress.Report(($"Sending {h.File.Name}", 0.2 + 0.78 * sent / sendTotal));
+            progress.Report(($"Sending {h.File.Name} ({++number} of {toSend.Count} new files)", 0.2 + 0.78 * sent / sendTotal));
             using var _ = await SendWithRetryAsync(() => new HttpRequestMessage(HttpMethod.Put, new Uri(Endpoint, $"files/{h.Sha256}"))
             {
                 Content = new StreamContent(File.OpenRead(h.File.SourcePath)),
@@ -91,7 +96,7 @@ public static class FirmwareDrop
         }
         Log.Info($"Firmware drop: {hashed.Count} files, {missing.Count} new, {toSend.Count} sent ({sent} bytes)");
 
-        progress.Report(("Sending the list of files", 0.98));
+        progress.Report((toSend.Count == 0 ? "Are we ARM yet has every file already. Sending the list of files" : "Sending the list of files", 0.98));
         var machine = new Dictionary<string, string?>
         {
             ["manufacturer"] = Text(identity?.Manufacturer) ?? "Unknown",
@@ -110,9 +115,10 @@ public static class FirmwareDrop
                 files = hashed.Select(h => new ReportFile(h.File.Folder, h.File.Name, h.File.Size, h.Sha256)).ToArray(),
             }),
         }, ct);
-        var code = (await done.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("code").GetString()!;
+        var reply = await done.Content.ReadFromJsonAsync<JsonElement>(ct);
+        var known = reply.TryGetProperty("known", out var k) && k.ValueKind == JsonValueKind.True;
         progress.Report(("Sent", 1));
-        return code;
+        return new Result(reply.GetProperty("code").GetString()!, hashed.Count, toSend.Count, known);
     }
 
     /// Sends a request, waiting a minute and trying again while the store

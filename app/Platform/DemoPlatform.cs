@@ -16,6 +16,9 @@ public sealed class DemoPlatform : IPlatform
 
     public Core.Hardware.IHardwareSource Hardware { get; } = new DemoHardware();
 
+    public IReadOnlyList<string> DriverPackages() =>
+        Directory.Exists(DriverStore) ? Directory.GetDirectories(DriverStore) : [];
+
     public Task<IReadOnlyList<UsbDisk>> ListUsbDisksAsync(CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<UsbDisk>>([new UsbDisk(2, "SanDisk Ultra USB 3.0", 31_008_000_000, "4C530001")]);
 
