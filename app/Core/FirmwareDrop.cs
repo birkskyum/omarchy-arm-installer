@@ -94,8 +94,8 @@ public static class FirmwareDrop
         progress.Report(("Sending the list of files", 0.98));
         var machine = new Dictionary<string, string?>
         {
-            ["manufacturer"] = identity?.Manufacturer ?? "Unknown",
-            ["product"] = identity?.ProductName ?? model,
+            ["manufacturer"] = Text(identity?.Manufacturer) ?? "Unknown",
+            ["product"] = Text(identity?.ProductName) ?? Text(model) ?? "Unknown",
             ["family"] = identity?.Family,
             ["sku"] = identity?.Sku,
             ["baseboard"] = identity?.BaseboardProduct,
@@ -138,6 +138,8 @@ public static class FirmwareDrop
             throw new HttpRequestException($"Are we ARM yet did not take the firmware: {ErrorText(text) ?? $"{(int)status} {status}"}", null, status);
         }
     }
+
+    static string? Text(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
     /// The store's own explanation, {"error": "..."}, when it gave one.
     static string? ErrorText(string body)

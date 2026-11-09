@@ -538,6 +538,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var built = await Task.Run(() => ReportBuilder.Build(hardware, platform.DownloadFolder, Log.Version, null, ct), ct);
             Log.Info($"Report {built.Id}: {built.ZipPath}\n{built.Summary}");
             Done("Report saved");
+            if (SendFirmwareWithReport)
+            {
+                OfferFirmware();
+                if (OffersFirmware) await SendWithReportAsync(built.Identity, ct);
+            }
             Report = built;
         });
     }
@@ -571,23 +576,33 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     // ---------- Sending the firmware ----------
 
-    /// The firmware the stick takes, or would take, offered to Are we ARM
-    /// yet's private store at the end of either run of steps.
+    /// The firmware the stick takes, or would take, for Are we ARM yet's
+    /// private store. A report sends it along unless the box is cleared; the
+    /// stick offers it at the end, and so does Share it when it wasn't sent.
     IReadOnlyList<FirmwarePackage> offered = [];
     public bool OffersFirmware => offered.Count > 0;
     public bool Sending { get; private set; }
     public string? FirmwareCode { get; private set; }
     public bool FirmwareSent => FirmwareCode is not null;
     public bool CanSendFirmware => !Busy && !FirmwareSent && OffersFirmware;
+    public bool ShowFirmware => OffersFirmware || FirmwareSent;
+    public bool AskFirmware => OffersFirmware && !FirmwareSent;
+
+    bool sendFirmwareWithReport = true;
+    public bool SendFirmwareWithReport { get => sendFirmwareWithReport; set { sendFirmwareWithReport = value; Changed(); } }
+
+    string? firmwareFailure;
+    public string? FirmwareFailure { get => firmwareFailure; private set { firmwareFailure = value; Changed(); Changed(nameof(HasFirmwareFailure)); } }
+    public bool HasFirmwareFailure => !string.IsNullOrEmpty(FirmwareFailure);
 
     public string FirmwareOffer =>
-        $"Are we ARM yet can keep a private copy of the {offered.Sum(p => p.Found.Count)} firmware files in this computer's drivers " +
-        $"({FirmwareDrop.Size(offered) / 1e6:0} MB). Only its maintainer can read them, and they are never published. " +
-        "With them, the maker can be asked to put them in linux-firmware, so Linux gets them without Windows.";
+        $"Today Linux can only get the {offered.Sum(p => p.Found.Count)} firmware files in this computer's drivers " +
+        $"({FirmwareDrop.Size(offered) / 1e6:0} MB) from Windows. Send them to Are we ARM yet, and they are used to ask the maker " +
+        "to put them in linux-firmware, for everyone with this laptop. They stay private. Only its maintainer can read them, and they are never published.";
 
     public string FirmwareSentText => IsReport
-        ? $"Sent, as {FirmwareCode}. The form says so."
-        : $"Sent, as {FirmwareCode}. Mention the code if you report how Omarchy runs here.";
+        ? $"Firmware files sent privately, as {FirmwareCode}. The form includes the code."
+        : $"Firmware files sent privately, as {FirmwareCode}. Thank you. Mention the code if you report how Omarchy runs here.";
 
     void OfferFirmware()
     {
@@ -597,9 +612,44 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ChangedAll();
     }
 
+    /// The demo sends nowhere, unless pointed at a test store.
+    async Task<string> SendOfferedAsync(SmbiosIdentity? id, IProgress<(string Text, double Fraction)> progress, CancellationToken ct)
+    {
+        var code = platform.IsDemo && Environment.GetEnvironmentVariable("OMARCHY_FIRMWARE_DROP") is null
+            ? "FW-DEMO"
+            : await FirmwareDrop.SendAsync(offered, id, MachineName, progress, ct);
+        Log.Info($"Firmware sent as {code}");
+        return code;
+    }
+
+    /// The last line of collecting a report. Failing here leaves the report
+    /// whole, and Share it offers to try again.
+    async Task SendWithReportAsync(SmbiosIdentity id, CancellationToken ct)
+    {
+        const string sending = "Sending the firmware files privately";
+        Note(sending);
+        var progress = new Progress<(string Text, double Fraction)>(p =>
+        {
+            if (ReportLog.Count > 0 && ReportLog[^1] is { Ok: false } last && last.Text.StartsWith(sending))
+                ReportLog[^1] = new LogLine($"{sending} ({p.Fraction:P0})", false);
+        });
+        try
+        {
+            FirmwareCode = await SendOfferedAsync(id, progress, ct);
+            Done($"Firmware files sent privately, as {FirmwareCode}");
+        }
+        catch (Exception e)
+        {
+            Log.Error("sending the firmware with the report", e);
+            ReportLog.RemoveAt(ReportLog.Count - 1);
+            FirmwareFailure = e is OperationCanceledException ? "Sending the firmware files was stopped." : $"Sending the firmware files didn't work: {e.Message}";
+        }
+    }
+
     public async Task SendFirmwareAsync()
     {
         var id = Report?.Identity ?? identity;
+        FirmwareFailure = null;
         Sending = true;
         try
         {
@@ -612,11 +662,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     Changed(nameof(ProgressText));
                     Progress = p.Fraction;
                 });
-                // The demo sends nowhere, unless pointed at a test store.
-                FirmwareCode = platform.IsDemo && Environment.GetEnvironmentVariable("OMARCHY_FIRMWARE_DROP") is null
-                    ? "FW-DEMO"
-                    : await FirmwareDrop.SendAsync(offered, id, MachineName, progress, ct);
-                Log.Info($"Firmware sent as {FirmwareCode}");
+                FirmwareCode = await SendOfferedAsync(id, progress, ct);
             });
         }
         finally
@@ -738,7 +784,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             case Steps.Installer: if (release is null) await FindReleaseAsync(); break;
             case Steps.Stick: await ListDisksAsync(); break;
             case Steps.Windows: await CheckWindowsAsync(); break;
-            case Steps.Share: OfferFirmware(); break;
+            case Steps.Done or Steps.Share: OfferFirmware(); break;
         }
     }
 }
