@@ -21,7 +21,7 @@ Run `OmarchyArmInstaller.exe` in the laptop's Windows (as administrator). It rea
 
 ![Installer](docs/screenshots/install-3-installer.png)
 
-**4. USB stick.** Pick a stick of 8 GB or more. Everything on it is erased.
+**4. USB stick.** Pick a stick of 16 GB or more; the image no longer fits on 8 GB. Everything on it is erased.
 
 ![USB stick](docs/screenshots/install-4-usb-stick.png)
 

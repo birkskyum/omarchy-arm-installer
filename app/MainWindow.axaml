@@ -279,7 +279,7 @@
 
         <!-- USB stick -->
         <StackPanel Classes="step" IsVisible="{Binding IsStickStep}">
-          <TextBlock Classes="body" Text="Plug in a USB stick of 8 GB or more. Everything on it will be erased." />
+          <TextBlock Classes="body" Text="{Binding StickPrompt}" />
           <ListBox ItemsSource="{Binding Disks}" SelectedItem="{Binding SelectedDisk}" Background="Transparent">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="platform:UsbDisk">
@@ -287,7 +287,7 @@
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>
-          <TextBlock Classes="dim body" IsVisible="{Binding NoDisks}" Text="No USB stick of 8 GB or more found." />
+          <TextBlock Classes="dim body" IsVisible="{Binding NoDisks}" Text="{Binding NoStickText}" />
           <Button Content="Look again" Click="Refresh" HorizontalAlignment="Left" />
         </StackPanel>
 

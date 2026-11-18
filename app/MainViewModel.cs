@@ -331,13 +331,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public UsbDisk? SelectedDisk { get => selectedDisk; set { selectedDisk = value; ChangedAll(); } }
     public bool NoDisks => Disks.Count == 0;
 
+    /// The smallest stick the image fits on. Images have outgrown 8 GB
+    /// sticks (2026.11.18 is 9.6 GB), so this follows the image chosen.
+    long MinStickBytes => Math.Max(8_000_000_000, ImagePath is { } p && File.Exists(p) ? new FileInfo(p).Length : 0);
+    /// The size sticks are sold in that holds it.
+    public string MinStickText => $"{new[] { 8, 16, 32, 64, 128 }.FirstOrDefault(gb => gb * 0.96e9 >= MinStickBytes, 256)} GB";
+    public string StickPrompt => $"Plug in a USB stick of {MinStickText} or more. Everything on it will be erased.";
+    public string NoStickText => $"No USB stick of {MinStickText} or more found.";
+
     public async Task ListDisksAsync()
     {
         try
         {
             var disks = await platform.ListUsbDisksAsync(CancellationToken.None);
             Disks.Clear();
-            foreach (var d in disks.Where(d => d.Size >= 8_000_000_000)) Disks.Add(d);
+            foreach (var d in disks.Where(d => d.Size >= MinStickBytes)) Disks.Add(d);
             if (SelectedDisk is not null && !Disks.Contains(SelectedDisk)) SelectedDisk = null;
             if (Disks.Count == 1) SelectedDisk = Disks[0];
             Log.Info($"USB sticks: {(disks.Count == 0 ? "none" : string.Join("; ", disks.Select(d => d.Description)))}");
