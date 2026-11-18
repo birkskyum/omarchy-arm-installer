@@ -162,7 +162,8 @@
               <DataTemplate x:DataType="local:LogLine">
                 <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,3">
                   <TextBlock Text="&#xf00c;" Classes="ok" IsVisible="{Binding Ok}" />
-                  <TextBlock Text="&#xf254;" Foreground="{StaticResource AccentBrush}" IsVisible="{Binding !Ok}" />
+                  <TextBlock Text="&#xf254;" Foreground="{StaticResource AccentBrush}" IsVisible="{Binding Pending}" />
+                  <TextBlock Text="&#xf00d;" Classes="notok" IsVisible="{Binding Failed}" />
                   <TextBlock Text="{Binding Text}" />
                 </StackPanel>
               </DataTemplate>
@@ -292,15 +293,16 @@
 
         <!-- Windows -->
         <StackPanel Classes="step" IsVisible="{Binding IsWindowsStep}">
+          <TextBlock Classes="body" Text="This creator writes only to the USB stick. Where Omarchy goes is up to Omarchy's installer, when you start from the stick: the free space next to Windows, another drive, or the whole disk. Here you get Windows ready for that." />
           <RadioButton GroupName="windows" IsChecked="{Binding KeepWindows}">
             <StackPanel Spacing="6">
-              <TextBlock Text="Keep Windows next to Omarchy" FontWeight="Bold" />
-              <TextBlock Classes="dim body" Text="Omarchy installs into unallocated space on this disk. Omarchy's boot menu lists Windows, and Omarchy can restart into it." />
+              <TextBlock Text="Keep Windows" FontWeight="Bold" />
+              <TextBlock Classes="dim body" Text="To put Omarchy next to Windows on this disk, make room for it below. To put it on another drive, there is nothing to do here." />
             </StackPanel>
           </RadioButton>
           <Border Classes="panel" Margin="30,0,0,0" IsVisible="{Binding KeepWindows}">
             <StackPanel Spacing="10">
-              <TextBlock Text="Make room in Disk Management" FontWeight="Bold" />
+              <TextBlock Text="Make room next to Windows in Disk Management" FontWeight="Bold" />
               <TextBlock Classes="dim body" Text="1  Right-click C: and choose Shrink Volume.&#10;2  Enter the amount to shrink in MB (20480 is 20 GB, 102400 is 100 GB) and choose Shrink. Leave the new space unallocated: don't make a volume in it.&#10;3  Come back here and choose Check again." />
               <TextBlock Classes="dim body" FontSize="12" Text="If Windows offers less room than you expect, turn off hibernation (powercfg /h off) and Fast Startup, or shrink again after a restart." />
               <StackPanel Orientation="Horizontal" Spacing="10">
@@ -313,7 +315,7 @@
           <RadioButton GroupName="windows" IsChecked="{Binding ReplaceWindows}">
             <StackPanel Spacing="6">
               <TextBlock Text="Replace Windows with Omarchy" FontWeight="Bold" />
-              <TextBlock Classes="dim body" Text="Windows is left as it is now; Omarchy's installer erases the whole disk." />
+              <TextBlock Classes="dim body" Text="Nothing changes now. Windows goes when you choose its disk in Omarchy's installer, which erases it." />
             </StackPanel>
           </RadioButton>
           <Border Classes="panel" Margin="30,0,0,0" IsVisible="{Binding ReplaceWindows}" BorderBrush="{StaticResource WarnBrush}">
@@ -344,7 +346,8 @@
               <DataTemplate x:DataType="local:LogLine">
                 <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,3">
                   <TextBlock Text="&#xf00c;" Classes="ok" IsVisible="{Binding Ok}" />
-                  <TextBlock Text="&#xf254;" Foreground="{StaticResource AccentBrush}" IsVisible="{Binding !Ok}" />
+                  <TextBlock Text="&#xf254;" Foreground="{StaticResource AccentBrush}" IsVisible="{Binding Pending}" />
+                  <TextBlock Text="&#xf00d;" Classes="notok" IsVisible="{Binding Failed}" />
                   <TextBlock Text="{Binding Text}" />
                 </StackPanel>
               </DataTemplate>
@@ -364,7 +367,7 @@
             <StackPanel Spacing="12">
               <TextBlock Classes="body" Text="{Binding SecureBootText, StringFormat='1  {0}'}" />
               <TextBlock Classes="body" Text="{Binding BootFromUsbText, StringFormat='2  {0}'}" />
-              <TextBlock Classes="body" Text="3  In the installer, choose the free space to keep Windows, or the whole disk to replace it." />
+              <TextBlock Classes="body" Text="3  In Omarchy's installer, choose where Omarchy goes: the free space next to Windows, another drive, or the whole disk to replace Windows." />
             </StackPanel>
           </Border>
           <TextBlock Classes="dim body" Text="Omarchy reads this computer's firmware from the stick while it installs; nothing else is needed." />

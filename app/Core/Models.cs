@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using OmarchyArmInstaller.Core.Hardware;
 
 namespace OmarchyArmInstaller.Core;
 
@@ -15,11 +16,23 @@ public static class Models
 
     public static IReadOnlyList<KnownModel> All => all.Value;
 
-    /// The first model one of whose hardware IDs this machine has.
-    public static KnownModel? For(IEnumerable<Guid> chids)
+    /// The CHID types systemd-stub compares, from most to least specific
+    /// (chid_match() in systemd's src/boot/chid.c). It skips 0 to 2, which
+    /// carry the BIOS version, and 12 to 14, which are too broad: type 14 is
+    /// the manufacturer alone, so every HP shares one.
+    static readonly string[] StubOrder = ["ext2", "ext1", "ext0", "3", "6", "8", "10", "4", "5", "7", "9", "11"];
+
+    /// The model systemd-stub would pick a device tree for on this machine.
+    public static KnownModel? For(IReadOnlyList<ChidValue> chids)
     {
-        var set = chids.Select(c => c.ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return All.FirstOrDefault(m => m.Hwids.Any(set.Contains));
+        foreach (var type in StubOrder)
+        {
+            if (chids.FirstOrDefault(c => c.Type == type) is not { } chid) continue;
+            var id = chid.Value.ToString();
+            if (All.FirstOrDefault(m => m.Hwids.Contains(id, StringComparer.OrdinalIgnoreCase)) is { } model)
+                return model;
+        }
+        return null;
     }
 
     static IReadOnlyList<KnownModel> Load()
