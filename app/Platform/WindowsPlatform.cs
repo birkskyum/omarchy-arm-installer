@@ -205,22 +205,44 @@ public sealed class WindowsPlatform : IPlatform
         CancellationToken ct)
     {
         var buffer = new byte[4 << 20];
+        // The image's partition tables are in its first chunk, and Windows
+        // reacts to them as soon as they are on the disk: it brings up a
+        // volume for the image's first partition, and from then on refuses
+        // raw writes inside it ("Incorrect function", 12 MiB in). So the
+        // first chunk is written last: until then the disk starts with
+        // zeros and has no partitions for Windows to mount.
+        var head = new byte[buffer.Length];
+        var headCount = 0;
+        void Write(ReadOnlySpan<byte> data, long at)
+        {
+            try { RandomAccess.Write(target, data, at); }
+            catch (IOException e)
+            {
+                Log.Info($"Writing {data.Length} bytes at {at} failed: {e.Message} (0x{e.HResult:x8})");
+                throw;
+            }
+        }
+        Write(head, 0);
+
         using var source = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         using (var input = File.OpenRead(image))
         {
             long offset = 0;
             int read;
-            while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
+            while ((read = input.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false)) > 0)
             {
                 ct.ThrowIfCancellationRequested();
                 // Whole sectors: an ISO is a multiple of 2048 bytes.
                 var count = (read + 511) & ~511;
                 Array.Clear(buffer, read, count - read);
-                try { RandomAccess.Write(target, buffer.AsSpan(0, count), offset); }
-                catch (IOException e)
+                if (offset == 0)
                 {
-                    Log.Info($"Writing {count} bytes at {offset} failed: {e.Message} (0x{e.HResult:x8})");
-                    throw;
+                    buffer.AsSpan(0, count).CopyTo(head);
+                    headCount = count;
+                }
+                else
+                {
+                    Write(buffer.AsSpan(0, count), offset);
                 }
                 source.AppendData(buffer, 0, read);
                 offset += read;
@@ -233,8 +255,9 @@ public sealed class WindowsPlatform : IPlatform
         if (diskSize > length + (1 << 20))
         {
             Array.Clear(buffer, 0, 1 << 20);
-            RandomAccess.Write(target, buffer.AsSpan(0, 1 << 20), (diskSize - (1 << 20)) & ~511L);
+            Write(buffer.AsSpan(0, 1 << 20), (diskSize - (1 << 20)) & ~511L);
         }
+        Write(head.AsSpan(0, headCount), 0);
         Log.Info($"Wrote {length} bytes");
 
         // Read it back: a stick that silently drops writes is common enough.
