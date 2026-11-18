@@ -112,17 +112,36 @@ public sealed class WindowsPlatform : IPlatform
 
     public async Task WriteImageAsync(string image, UsbDisk disk, IProgress<double> progress, CancellationToken ct)
     {
-        // Same checks as the list, against the disk as it is now, and the
-        // volumes Windows mounted from whatever the stick held before.
+        // Same checks as the list, against the disk as it is now. A stick
+        // that still holds partitions is cleared through Windows' storage
+        // stack first, which takes its volumes down the way deleting the
+        // partitions in Disk Management does: with an old layout in place,
+        // some sticks refused the first raw write ("Incorrect function")
+        // even with every volume locked and dismounted. Whatever volumes are
+        // still there afterwards are locked and dismounted below.
         var json = await Task.Run(() => PowerShell($$"""
             $d = Get-Disk -Number {{disk.Number}}
             if ($d.BusType -ne 'USB' -or $d.IsBoot -or $d.IsSystem) { throw "Disk {{disk.Number}} is not a removable USB stick" }
-            ConvertTo-Json -InputObject @(Get-Partition -DiskNumber {{disk.Number}} -ErrorAction SilentlyContinue |
-              ForEach-Object { $_.AccessPaths } | Where-Object { $_ -like '\\?\Volume*' })
-            """, "Checking the stick and listing its volumes"), ct);
+            $before = @(Get-Partition -DiskNumber {{disk.Number}} -ErrorAction SilentlyContinue |
+              ForEach-Object { "$($_.PartitionNumber): $($_.Type) $($_.Size) bytes at $($_.Offset)" })
+            $cleared = 'not needed'
+            if ($d.PartitionStyle -ne 'RAW') {
+              try {
+                Clear-Disk -Number {{disk.Number}} -RemoveData -RemoveOEM -Confirm:$false
+                $cleared = 'yes'
+              } catch { $cleared = "failed: $_" }
+            }
+            [pscustomobject]@{
+              style = "$($d.PartitionStyle)"; logicalSector = $d.LogicalSectorSize; physicalSector = $d.PhysicalSectorSize
+              partitions = $before; cleared = $cleared
+              volumes = @(Get-Partition -DiskNumber {{disk.Number}} -ErrorAction SilentlyContinue |
+                ForEach-Object { $_.AccessPaths } | Where-Object { $_ -like '\\?\Volume*' })
+            } | ConvertTo-Json
+            """, "Checking the stick, clearing it and listing its volumes"), ct);
         using var doc = JsonDocument.Parse(json);
-        var volumes = doc.RootElement.ValueKind == JsonValueKind.Array
-            ? doc.RootElement.EnumerateArray().Select(v => v.GetString() ?? "").Where(v => v.Length > 0).ToList()
+        var found = doc.RootElement.GetProperty("volumes");
+        var volumes = found.ValueKind == JsonValueKind.Array
+            ? found.EnumerateArray().Select(v => v.GetString() ?? "").Where(v => v.Length > 0).ToList()
             : [];
 
         var length = new FileInfo(image).Length;
@@ -197,7 +216,12 @@ public sealed class WindowsPlatform : IPlatform
                 // Whole sectors: an ISO is a multiple of 2048 bytes.
                 var count = (read + 511) & ~511;
                 Array.Clear(buffer, read, count - read);
-                RandomAccess.Write(target, buffer.AsSpan(0, count), offset);
+                try { RandomAccess.Write(target, buffer.AsSpan(0, count), offset); }
+                catch (IOException e)
+                {
+                    Log.Info($"Writing {count} bytes at {offset} failed: {e.Message} (0x{e.HResult:x8})");
+                    throw;
+                }
                 source.AppendData(buffer, 0, read);
                 offset += read;
                 progress.Report(0.8 * offset / length);
@@ -220,7 +244,13 @@ public sealed class WindowsPlatform : IPlatform
         {
             ct.ThrowIfCancellationRequested();
             var count = (int)Math.Min(buffer.Length, length - verified);
-            var got = RandomAccess.Read(target, buffer.AsSpan(0, (count + 511) & ~511), verified);
+            int got;
+            try { got = RandomAccess.Read(target, buffer.AsSpan(0, (count + 511) & ~511), verified); }
+            catch (IOException e)
+            {
+                Log.Info($"Reading back {count} bytes at {verified} failed: {e.Message} (0x{e.HResult:x8})");
+                throw;
+            }
             written.AppendData(buffer, 0, Math.Min(got, count));
             verified += count;
             progress.Report(0.8 + 0.2 * verified / length);

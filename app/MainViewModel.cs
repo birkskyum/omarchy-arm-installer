@@ -19,7 +19,11 @@ public sealed record StepItem(string Title, int Index, MainViewModel Owner)
     public string Mark => IsDone ? "\uf00c" : (Index + 1).ToString();
 }
 
-public sealed record LogLine(string Text, bool Ok);
+/// A line in a step's progress list: done, still going, or where it failed.
+public sealed record LogLine(string Text, bool Ok, bool Failed = false)
+{
+    public bool Pending => !Ok && !Failed;
+}
 
 public sealed class MainViewModel : INotifyPropertyChanged
 {
@@ -107,7 +111,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Steps.Firmware => FirmwareOk && FirmwareSize <= StickRoom,
         Steps.Installer => ImagePath is not null,
         Steps.Stick => SelectedDisk is not null,
-        Steps.Windows => (!BitLocker.On || KeySaved) && !(KeepWindows && DiskFreeLow),
+        Steps.Windows => !BitLocker.On || KeySaved,
         Steps.Collect => Report is not null,
         _ => false,
     };
@@ -198,13 +202,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         hardware = await platform.Hardware.CollectAsync(new Progress<string>(t => { ProgressText = t; Changed(nameof(ProgressText)); }), ct);
         identity = hardware.Smbios is { Length: > 0 } table ? Smbios.Identity(Smbios.Parse(table)) : null;
         var panel = hardware.Displays.OrderByDescending(d => d.Internal).Select(d => Edid.PanelId(d.Edid)).FirstOrDefault();
-        var chids = identity is null ? [] : Chid.Calculate(identity, panel).Select(c => c.Value).ToList();
+        var chids = identity is null ? [] : Chid.Calculate(identity, panel);
         Model = Models.For(chids);
         MachineName = identity is null ? m.Model
             : string.Join(" ", new[] { identity.Manufacturer, identity.ProductName }.Where(x => !string.IsNullOrWhiteSpace(x)))
               + (identity.Sku is { } sku ? $"  ·  {sku}" : "");
         Log.Info($"Machine: {MachineName}, arm64 {m.IsArm64}, administrator {m.IsAdministrator}, " +
-                 $"device tree {Model?.Compatible ?? "none"}, CHIDs {string.Join(" ", chids)}");
+                 $"device tree {Model?.Compatible ?? "none"}, CHIDs {string.Join(" ", chids.Select(c => $"{c.Type}:{c.Value}"))}");
     }
 
     public async Task CheckMachineAsync()
@@ -357,14 +361,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool WindowsStays => Plan != WindowsPlan.Replace;
 
     public SystemPartition? Partition { get; private set; }
-    /// Omarchy's installer wants this much unallocated space for a free-space install.
+    /// Omarchy's installer wants this much unallocated space to install next to
+    /// Windows. Only advice: where Omarchy goes is chosen in Omarchy's
+    /// installer, which may be another drive.
     const double MinFree = 20e9;
     public bool DiskFreeLow => Partition is null || Partition.DiskFree < MinFree;
     public string DiskFreeText => Partition is null ? "Reading this computer's disk…" : Partition.DiskFree >= MinFree
-        ? $"{Partition.DiskFree / 1e9:0} GB of unallocated space on this disk: enough for Omarchy."
+        ? $"{Partition.DiskFree / 1e9:0} GB of unallocated space next to Windows: enough for Omarchy."
         : Partition.DiskFree < 1e9
-            ? "No unallocated space on this disk yet. Omarchy needs at least 20 GB."
-            : $"Only {Partition.DiskFree / 1e9:0} GB of unallocated space on this disk. Omarchy needs at least 20 GB.";
+            ? "No unallocated space next to Windows yet. Omarchy needs at least 20 GB to go there."
+            : $"Only {Partition.DiskFree / 1e9:0} GB of unallocated space next to Windows. Omarchy needs at least 20 GB to go there.";
 
     public BitLockerState BitLocker { get; private set; } = new(false, []);
     public string RecoveryKeys => string.Join("\n", BitLocker.RecoveryKeys.Select(k => k.Password));
@@ -421,8 +427,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         $"Erase {SelectedDisk.Description} and write {Path.GetFileName(ImagePath)} to it, with this computer's firmware.\n" +
         Plan switch
         {
-            WindowsPlan.Keep => $"Leave Windows as it is; Omarchy installs into the {(Partition?.DiskFree ?? 0) / 1e9:0} GB of unallocated space next to it.",
-            _ => "Leave Windows as it is; Omarchy's installer will erase this computer's disk.",
+            WindowsPlan.Keep => "Windows stays. Nothing else on this computer changes; in Omarchy's installer, choose the free space next to Windows or another drive.",
+            _ => "Nothing else on this computer changes now; Omarchy's installer erases Windows' disk when you choose it there.",
         } +
         (WindowsStays && BitLocker.On ? "\nPause BitLocker for the next 3 starts, while Secure Boot is turned off and Omarchy is installed." : "");
 
@@ -481,6 +487,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     void Note(string text) => Lines.Add(new LogLine(text, false));
+
+    /// The line that was under way when the work stopped no longer looks as if it still is.
+    void MarkFailed()
+    {
+        if (Lines.Count > 0 && Lines[^1].Pending) Lines[^1] = Lines[^1] with { Failed = true };
+    }
 
     void Done(string text)
     {
@@ -697,10 +709,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             Error = "Stopped.";
             Log.Info("Stopped by the user");
+            MarkFailed();
         }
         catch (Exception e)
         {
             Fail(StepTitle, e);
+            MarkFailed();
         }
         finally
         {
@@ -731,7 +745,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                              "go Back, choose Look again, and create it again.",
         // ERROR_INVALID_FUNCTION, ERROR_ACCESS_DENIED, ERROR_WRITE_PROTECT
         1 or 5 or 19 when e is IOException => $"Windows would not let the creator write to the stick ({e.Message.TrimEnd('.')}). " +
-                             "Unplug it, plug it back in and try again; if it keeps failing, open the log and report it.",
+                             "Unplug it, plug it back in and try again. If it keeps failing, try another stick, and report it with the log.",
         _ => e.Message,
     };
 
